@@ -1,7 +1,7 @@
 use std::os::raw::c_ulong;
 
 use failure::Fail;
-use openssl::error::ErrorStack;
+use openssl::{bn::BigNumContext, ec::EcGroup, error::ErrorStack, nid::Nid};
 
 use crate::VRF;
 
@@ -35,6 +35,12 @@ impl From<ErrorStack> for Error {
     }
 }
 
+/// Elliptic Curve context
+struct ECContext {
+    group: EcGroup,
+    bn_ctx: BigNumContext,
+}
+
 /// A Elliptic Curve VRF using the curve p256v1
 struct P256v1;
 
@@ -50,6 +56,14 @@ impl<'a> VRF<PublicKey<'a>, SecretKey<'a>> for P256v1 {
     fn verify(_y: PublicKey, _pi: &[u8], _alpha: &[u8]) -> Result<bool, Error> {
         Ok(false)
     }
+}
+
+/// Function to create a Elliptic Curve context using the curve prime256v1
+fn _create_ec_context() -> Result<ECContext, Error> {
+    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+    let bn_ctx = BigNumContext::new()?;
+
+    Ok(ECContext { group, bn_ctx })
 }
 
 #[cfg(test)]
