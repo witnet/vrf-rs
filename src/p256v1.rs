@@ -1,4 +1,7 @@
+use std::os::raw::c_ulong;
+
 use failure::Fail;
+use openssl::error::ErrorStack;
 
 use crate::VRF;
 
@@ -17,8 +20,19 @@ pub type PublicKey<'a> = &'a [u8; PUBLIC_KEY_SIZE];
 /// Error that can be raised when proving/verifying VRFs
 #[derive(Debug, Fail)]
 pub enum Error {
+    #[fail(display = "Error with code {}", code)]
+    CodedError { code: c_ulong },
     #[fail(display = "Unknown error")]
-    _Unknown,
+    Unknown,
+}
+
+impl From<ErrorStack> for Error {
+    fn from(error: ErrorStack) -> Self {
+        match error.errors().get(0).map(|e| e.code()) {
+            Some(code) => Error::CodedError { code },
+            _ => Error::Unknown {},
+        }
+    }
 }
 
 /// A Elliptic Curve VRF using the curve p256v1
