@@ -78,6 +78,14 @@ fn derive_public_key(secret_key: &BigNum, ctx: &ECContext) -> Result<EcPoint, Er
     Ok(point)
 }
 
+/// Function for converting a string to a point in the curve
+fn arbitrary_string_to_point(data: &[u8], ctx: &mut ECContext) -> Result<EcPoint, Error> {
+    let mut v = vec![0x02];
+    v.extend(data);
+    let point = EcPoint::from_bytes(&ctx.group, &v, &mut ctx.bn_ctx)?;
+    Ok(point)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
