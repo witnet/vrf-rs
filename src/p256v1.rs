@@ -1,7 +1,6 @@
 use std::os::raw::c_ulong;
 
 use failure::Fail;
-use hex::FromHex;
 use openssl::{
     bn::{BigNum, BigNumContext},
     ec::{EcGroup, EcPoint, PointConversionForm},
@@ -13,16 +12,28 @@ use openssl::{
 use crate::VRF;
 
 /// The size (in bytes) of a secret key
-pub const SECRET_KEY_SIZE: usize = 32;
+const SECRET_KEY_SIZE: usize = 32;
 
 /// The size (in bytes) of a serialized public key.
-pub const PUBLIC_KEY_SIZE: usize = 33;
+const PUBLIC_KEY_SIZE: usize = 33;
+
+/// Cipher suite for EC p256v1 curve
+const P256V1_N: usize = 16;
+
+/// Cipher suite for EC p256v1 curve
+const P256V1_CIPHER_SUITE: u8 = 0x01;
+
+/// Prefix used for the hash to point function
+const HASH_TO_POINT_PREFIX: u8 = 0x01;
+
+/// Prefix used for the hash points function
+const HASH_POINTS_PREFIX: u8 = 0x02;
 
 /// The type of the secret key
-pub type SecretKey<'a> = &'a [u8; SECRET_KEY_SIZE];
+type SecretKey<'a> = &'a [u8; SECRET_KEY_SIZE];
 
 /// The type of the public key
-pub type PublicKey<'a> = &'a [u8; PUBLIC_KEY_SIZE];
+type PublicKey<'a> = &'a [u8; PUBLIC_KEY_SIZE];
 
 /// Error that can be raised when proving/verifying VRFs
 #[derive(Debug, Fail)]
@@ -90,7 +101,6 @@ fn derive_public_key(secret_key: &BigNum, ctx: &ECContext) -> Result<EcPoint, Er
 
 /// Function to convert a Hash(PK|DATA) to a point in the curve
 fn hash_to_try_and_increment(
-    suite_string: &u8,
     public_key: &EcPoint,
     alpha: &[u8],
     mut ctx: &mut ECContext,
@@ -99,7 +109,7 @@ fn hash_to_try_and_increment(
     let pk_bytes =
         public_key.to_bytes(&ctx.group, PointConversionForm::COMPRESSED, &mut ctx.bn_ctx)?;
     let mut v = vec![];
-    let cipher = [0x01, 0x01];
+    let cipher = [P256V1_CIPHER_SUITE, HASH_TO_POINT_PREFIX];
     v.extend(&cipher);
     v.extend(pk_bytes.clone());
     v.extend(alpha.clone());
@@ -122,6 +132,25 @@ fn arbitrary_string_to_point(data: &[u8], ctx: &mut ECContext) -> Result<EcPoint
     v.extend(data);
     let point = EcPoint::from_bytes(&ctx.group, &v, &mut ctx.bn_ctx)?;
     Ok(point)
+}
+
+/// Function to calculate the hash of multiple EC Points
+fn hash_points(points: &[EcPoint], ctx: &mut ECContext) -> Result<Vec<u8>, Error> {
+    let point_bytes: Result<Vec<u8>, Error> = points.iter().try_fold(
+        vec![P256V1_CIPHER_SUITE, HASH_POINTS_PREFIX],
+        |mut acc, point| {
+            let bytes: Vec<u8> =
+                point.to_bytes(&ctx.group, PointConversionForm::COMPRESSED, &mut ctx.bn_ctx)?;
+            acc.extend(bytes);
+
+            Ok(acc)
+        },
+    );
+    let to_be_hashed = point_bytes?;
+    let mut hash = hash(ctx.hasher, &to_be_hashed).map(|hash| hash.to_vec())?;
+    hash.truncate(P256V1_N);
+
+    Ok(hash)
 }
 
 #[cfg(test)]
@@ -148,8 +177,6 @@ mod test {
 
     #[test]
     fn test_derive_public_key() {
-        // Example of using a different hashing function
-
         let k = [0x01];
         let mut ctx = create_ec_context().unwrap();
 
@@ -168,8 +195,6 @@ mod test {
 
     #[test]
     fn test_hash_to_try_and_increment() {
-        // Example of using a different hashing function
-        let suite: u8 = 1;
         let mut ctx = create_ec_context().unwrap();
         let public_key_hex =
             hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
@@ -181,7 +206,7 @@ mod test {
         let expected_hash =
             EcPoint::from_bytes(&ctx.group, &expected_hash_hex, &mut ctx.bn_ctx).unwrap();
         let data = hex::decode("73616d706c65").unwrap();
-        let derived_hash = hash_to_try_and_increment(&suite, &public_key, &data, &mut ctx).unwrap();
+        let derived_hash = hash_to_try_and_increment(&public_key, &data, &mut ctx).unwrap();
         assert!(derived_hash
             .eq(&ctx.group, &expected_hash, &mut ctx.bn_ctx)
             .unwrap());
@@ -189,8 +214,6 @@ mod test {
 
     #[test]
     fn test_hash_to_try_and_increment_2() {
-        // Example of using a different hashing function
-        let suite: u8 = 1;
         let mut ctx = create_ec_context().unwrap();
         let public_key_hex =
             hex::decode("03596375e6ce57e0f20294fc46bdfcfd19a39f8161b58695b3ec5b3d16427c274d")
@@ -202,7 +225,7 @@ mod test {
         let expected_hash =
             EcPoint::from_bytes(&ctx.group, &expected_hash_hex, &mut ctx.bn_ctx).unwrap();
         let data = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
-        let derived_hash = hash_to_try_and_increment(&suite, &public_key, &data, &mut ctx).unwrap();
+        let derived_hash = hash_to_try_and_increment(&public_key, &data, &mut ctx).unwrap();
         assert!(derived_hash
             .eq(&ctx.group, &expected_hash, &mut ctx.bn_ctx)
             .unwrap());
