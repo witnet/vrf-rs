@@ -230,4 +230,39 @@ mod test {
             .eq(&ctx.group, &expected_hash, &mut ctx.bn_ctx)
             .unwrap());
     }
+
+    #[test]
+    fn test_hash_points() {
+        let mut ctx = create_ec_context().unwrap();
+
+        let hash_hex =
+            hex::decode("02e2e1ab1b9f5a8a68fa4aad597e7493095648d3473b213bba120fe42d1a595f3e")
+                .unwrap();
+        let hash_point = EcPoint::from_bytes(&ctx.group, &hash_hex, &mut ctx.bn_ctx).unwrap();
+
+        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
+            .unwrap();
+
+        let mut gamma_hex = pi_hex.clone();
+        let c_s_hex = gamma_hex.split_off(33);
+        let gamma_point = EcPoint::from_bytes(&ctx.group, &gamma_hex, &mut ctx.bn_ctx).unwrap();
+
+        let mut c_hex = c_s_hex.clone();
+        c_hex.split_off(16);
+
+        let u_hex =
+            hex::decode("02007fe22a3ed063db835a63a92cb1e487c4fea264c3f3700ae105f8f3d3fd391f")
+                .unwrap();
+        let u_point = EcPoint::from_bytes(&ctx.group, &u_hex, &mut ctx.bn_ctx).unwrap();
+
+        let v_hex =
+            hex::decode("03d0a63fa7a7fefcc590cb997b21bbd21dc01304102df183fb7115adf6bcbc2a74")
+                .unwrap();
+        let v_point = EcPoint::from_bytes(&ctx.group, &v_hex, &mut ctx.bn_ctx).unwrap();
+
+        let computed_c =
+            hash_points(&[hash_point, gamma_point, u_point, v_point], &mut ctx).unwrap();
+
+        assert_eq!(computed_c, c_hex);
+    }
 }
