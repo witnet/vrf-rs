@@ -391,6 +391,57 @@ mod test {
     }
 
     #[test]
+    fn test_prove_P256_SHA256_2() {
+        // Secret Key (labelled as x)
+        let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+
+        // Data to be hashed: ASCII "sample
+        let alpha = hex::decode("74657374").unwrap();
+
+        let expected_pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
+
+        let pi = ECVRF::prove(&x, &alpha).unwrap();
+        assert_eq!(pi, expected_pi);
+    }
+
+    #[test]
+    fn test_verify_2() {
+        let y =  hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
+            .unwrap();
+        let pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
+        let alpha = hex::decode("74657374").unwrap();
+
+
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
+    }
+    #[test]
+    fn test_prove_P256_SHA256_3() {
+        // Secret Key (labelled as x)
+        let x = hex::decode("2ca1411a41b17b24cc8c3b089cfd033f1920202a6c0de8abb97df1498d50d2c8")
+            .unwrap();
+
+        // Data to be hashed: ASCII "sample
+        let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
+
+        let expected_pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
+
+        let pi = ECVRF::prove(&x, &alpha).unwrap();
+        assert_eq!(pi, expected_pi);
+    }
+
+    #[test]
+    fn test_verify_3() {
+        let y =  hex::decode("03596375e6ce57e0f20294fc46bdfcfd19a39f8161b58695b3ec5b3d16427c274d")
+            .unwrap();
+        let pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
+        let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
+
+
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
+    }
+
+    #[test]
     fn test_derive_public_key() {
         let k = [0x01];
         let mut ctx = create_ec_context(Curve::NISTP256).unwrap();
