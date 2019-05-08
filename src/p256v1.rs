@@ -40,6 +40,8 @@ pub enum Error {
     HashToPointError,
     #[fail(display = "Float division error while computing remainder")]
     IntegerDivisionError,
+    #[fail(display = "InvalidProofLength")]
+    InvalidPiLength,
     #[fail(display = "Unknown error")]
     Unknown,
 }
@@ -114,8 +116,41 @@ impl<'a> VRF<&'a [u8], &'a [u8]> for ECVRF {
         Ok(proof)
     }
     // Verify proof given public key, proof and message
-    fn verify(_y: &[u8], _pi: &[u8], _alpha: &[u8]) -> Result<bool, Error> {
-        Ok(false)
+    fn verify(y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<bool, Error> {
+        let mut ctx = create_ec_context(Curve::NISTP256)?;
+
+        // Step 1. decode proof
+        let (gamma_point, c, s) =
+            decode_proof(&pi, &mut ctx)?;
+
+        // Step 2. hash to curve
+        let public_key_point = EcPoint::from_bytes(&ctx.group, &y, &mut ctx.bn_ctx)?;
+        let h_point = hash_to_try_and_increment(&public_key_point, alpha, &mut ctx)?;
+        println!("{:x?}", h_point.to_bytes(&ctx.group, PointConversionForm::COMPRESSED, &mut ctx.bn_ctx));
+
+        // Step 3: U = sB -cY
+        let mut s_b = EcPoint::new(&ctx.group.as_ref())?;
+        let mut c_y = EcPoint::new(&ctx.group.as_ref())?;
+        let mut u_point = EcPoint::new(&ctx.group.as_ref())?;
+        s_b.mul_generator(&ctx.group, &s, &ctx.bn_ctx)?;
+        c_y.mul(&ctx.group, &public_key_point, &c, &mut ctx.bn_ctx)?;
+        c_y.invert(&ctx.group, &ctx.bn_ctx)?;
+        u_point.add(&ctx.group, &s_b, &c_y, &mut ctx.bn_ctx)?;
+
+        // Step 4: V = sH -cGamma
+        let mut s_h = EcPoint::new(&ctx.group.as_ref())?;
+        let mut c_gamma = EcPoint::new(&ctx.group.as_ref())?;
+        let mut v_point = EcPoint::new(&ctx.group.as_ref())?;
+        s_h.mul(&ctx.group, &h_point, &s, &mut ctx.bn_ctx)?;
+        c_gamma.mul(&ctx.group, &gamma_point, &c, &mut ctx.bn_ctx)?;
+        c_gamma.invert(&ctx.group, &ctx.bn_ctx)?;
+        v_point.add(&ctx.group, &s_h, &c_gamma, &mut ctx.bn_ctx)?;
+
+        // Step 5: hash points(...)
+        let derived_c = hash_points(&[&h_point, &gamma_point, &u_point, &v_point], &mut ctx)?;
+
+        // Step 6: Check validity
+        Ok(derived_c.eq(&c))
     }
 }
 
@@ -202,6 +237,28 @@ fn append_leading_zeros(data: &[u8], length: usize) -> Result<Vec<u8>, Error> {
     let padded_bytes = [&leading_zeros[..], &data].concat();
 
     Ok(padded_bytes)
+}
+
+fn decode_proof(pi: &[u8], ctx: &mut ECContext) -> Result<(EcPoint, BigNum, BigNum), Error> {
+    let gamma_oct = if ctx.qlen % 8 > 0 {
+        ctx.qlen/ 8 + 2
+    } else {
+        ctx.qlen/ 8 + 1
+    };
+    let c_oct = if ctx.n % 8 > 0 {
+        ctx.n/ 8 + 1
+    } else {
+        ctx.n/ 8
+    };
+
+    if (pi.len()*8 < gamma_oct + c_oct*3){
+        return Err(Error::InvalidPiLength);
+    }
+    let gamma_point = EcPoint::from_bytes(&ctx.group, &pi[0..gamma_oct], &mut ctx.bn_ctx)?;
+    let c =  BigNum::from_slice(&pi[gamma_oct..gamma_oct+ c_oct])?;
+    let s = BigNum::from_slice(&pi[gamma_oct + c_oct..])?;
+
+    Ok((gamma_point, c, s))
 }
 
 fn nonce_generation_rfc6979(
@@ -324,11 +381,13 @@ mod test {
 
     #[test]
     fn test_verify() {
-        let y = [0; 33];
-        let pi = [0];
-        let alpha = [0, 0, 0];
+        let y =  hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
+                .unwrap();
+        let pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
+        let alpha = hex::decode("73616d706c65").unwrap();
 
-        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), false);
+
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
     }
 
     #[test]
@@ -535,7 +594,6 @@ mod test {
 
         let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
             .unwrap();
-
         let mut gamma_hex = pi_hex.clone();
         let c_s_hex = gamma_hex.split_off(33);
         let gamma_point = EcPoint::from_bytes(&ctx.group, &gamma_hex, &mut ctx.bn_ctx).unwrap();
@@ -557,5 +615,29 @@ mod test {
             hash_points(&[&hash_point, &gamma_point, &u_point, &v_point], &mut ctx).unwrap();
 
         assert_eq!(computed_c.to_vec(), c_hex);
+    }
+    #[test]
+    fn test_decode_proof() {
+        let mut ctx = create_ec_context(Curve::NISTP256).unwrap();
+
+
+        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
+            .unwrap();
+
+        let (derived_gamma, derived_c, derived_s) =
+            decode_proof(&pi_hex, &mut ctx).unwrap();
+
+        let mut gamma_hex = pi_hex.clone();
+        let c_s_hex = gamma_hex.split_off(33);
+        let gamma_point = EcPoint::from_bytes(&ctx.group, &gamma_hex, &mut ctx.bn_ctx).unwrap();
+
+        let mut c_hex = c_s_hex.clone();
+        c_hex.split_off(16);
+        let c = BigNum::from_slice(c_hex.as_slice()).unwrap();
+
+        assert!(derived_c.eq(&c));
+        assert!(gamma_point
+            .eq(&ctx.group, &derived_gamma, &mut ctx.bn_ctx)
+            .unwrap());
     }
 }
