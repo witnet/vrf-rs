@@ -1,3 +1,23 @@
+//! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) funcionality.
+//! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979). In particular, it computes:
+//!
+//! * The ECVRF_hash_to_curve uses the ECVRF_hash_to_curve_try_and_increment algorithm in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * The ECVRF_nonce_generation is specified in Section 3.2 of [RFC6979](https://tools.ietf.org/html/rfc6979)
+//!
+//! Note that in our case the input data is public, and thus possible information leaks in the form of timing side channels are irrelevant.
+//!
+//! While the supported ciphersuites are:
+//! * _P256_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST P-256 curve
+//! * _K163_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST K-163 curve
+//!
+//! ## Documentation
+//! * [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * [RFC6979](https://tools.ietf.org/html/rfc6979)
+//! * [GitHub repository](https://github.com/witnet/vrf-rs)
+//!
+//!  ## Features
+//! * Compute VRF proof
+//! * Verify VRF proof
 use std::os::raw::c_ulong;
 
 use failure::Fail;
@@ -18,8 +38,11 @@ use self::utils::{append_leading_zeros, bits2int, bits2octets};
 mod utils;
 
 #[allow(non_camel_case_types)]
+/// Different ciphersuites for different curves/algorithms
 pub enum CipherSuite {
+    /// NIST P-256 with Sha256 and ECVRF_hash_to_curve_try_and_increment
     P256_SHA256_TAI,
+    /// NIST K-163 with Sha256 and ECVRF_hash_to_curve_try_and_increment
     K163_SHA256_TAI,
 }
 
@@ -32,7 +55,7 @@ impl CipherSuite {
     }
 }
 
-/// Errors that can be raised when proving/verifying VRFs
+/// Different errors that can be raised when proving/verifying VRFs
 #[derive(Debug, Fail)]
 pub enum Error {
     /// Error raised from `openssl::error::ErrorStack` with a specific code
@@ -64,17 +87,33 @@ impl From<ErrorStack> for Error {
 
 /// A Elliptic Curve VRF
 pub struct ECVRF {
+    // Bignumber arithmetic context
     bn_ctx: BigNumContext,
+    // Ciphersuite identification
     cipher_suite: CipherSuite,
+    // Elliptic curve group
     group: EcGroup,
+    // Hasher structure
     hasher: MessageDigest,
+    // order of the curve
     order: BigNum,
+    // Length of the order of the curve in bits
     qlen: usize,
+    // 2n = length of a field element in bits rounded up to the nearest even integer
     n: usize,
 }
 
 impl ECVRF {
-    /// Function to create a Elliptic Curve context using the curve prime256v1
+    /// Function to create an ECVRF object with initialized context from a ciphersuite.
+    /// Returns an ECVRF object with initialized context to the ciphersuite provided
+    ///
+    /// # Arguments
+    ///
+    /// * `suite` - A ciphersuite identifying the curve/algorithms.
+    ///
+    ///  Returns
+    ///
+    /// * If successful, the ECVRF object.
     pub fn from_suite(suite: CipherSuite) -> Result<Self, Error> {
         // Context for big number algebra
         let mut bn_ctx = BigNumContext::new()?;
@@ -108,9 +147,19 @@ impl ECVRF {
         })
     }
 
-    /// Function for deriving public key given a secret key point
+    /// Function for deriving public key given a secret key point.
+    /// Returns an EcPoint with the corresponding public key
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_key` - A BigNum referencing the secret key.
+    ///
+    ///  Returns
+    ///
+    /// * If successful, an EcPoint representing the public key.
     fn derive_public_key(&mut self, secret_key: &BigNum) -> Result<EcPoint, Error> {
         let mut point = EcPoint::new(&self.group.as_ref())?;
+        // secret_key = point*generator
         point.mul_generator(&self.group, &secret_key, &self.bn_ctx)?;
         Ok(point)
     }
@@ -176,8 +225,18 @@ impl ECVRF {
         }
     }
 
-    //TODO: check documentation (all)
-    /// Function to convert a Hash(PK|DATA) to a point in the curve
+    /// Function to convert a Hash(PK|DATA) to a point in the curve as stated in the VRF-draft-04.
+    /// (Section 5.4.1.1)
+    ///
+    /// # Arguments
+    ///
+    /// * `public_key` - An EcPoint referencing the public key.
+    ///
+    /// * `alpha` - A slice containing the input data.
+    ///
+    ///  Returns
+    ///
+    /// * If successful, an EcPoint representing the hashed point.
     fn hash_to_try_and_increment(
         &mut self,
         public_key: &EcPoint,
@@ -192,19 +251,30 @@ impl ECVRF {
         let cipher = [self.cipher_suite.suite_string(), 0x01];
         let mut v = [&cipher[..], &pk_bytes[..], &alpha[..], &[0x00]].concat();
         let position = v.len() - 1;
+        // Hash(cipher||PK||data)
         let point = c.find_map(|ctr| {
             v[position] = ctr;
             let attempted_hash = hash(self.hasher, &v);
+            // Check validity of H
             match attempted_hash {
                 Ok(attempted_hash) => self.arbitrary_string_to_point(&attempted_hash).ok(),
                 _ => None,
             }
         });
+        // Return error if no valid point was found
         point.ok_or(Error::HashToPointError)
     }
 
-    //TODO: check documentation (ec, bn - bn_ctx, ec_ctx)
-    /// Function for converting a string to a point in the curve
+    /// Function to convert an arbitrary string to a point in the curve as specified in VRF-draft-04.
+    /// (Section 5.5)
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A slice representing the data to be converted to a point.
+    ///
+    ///  Returns
+    ///
+    /// * If successful, an EcPoint representing the converted point.
     fn arbitrary_string_to_point(&mut self, data: &[u8]) -> Result<EcPoint, Error> {
         let mut v = vec![0x02];
         v.extend(data);
@@ -212,9 +282,18 @@ impl ECVRF {
         Ok(point)
     }
 
-    //TODO: check documentation (ec, bn - bn_ctx, ec_ctx)
-    /// Function to calculate the hash of multiple EC Points
+    /// Function to hash a certain set of points as specified in the VRF-draft-04.
+    /// (Section 5.4.3)
+    ///
+    /// # Arguments
+    ///
+    /// * `points` - A reference to an array containing the points that need to be hashed.
+    ///
+    ///  Returns
+    ///
+    /// * If successful, a BigNum representing the hash of the points, truncated to length `n`.
     fn hash_points(&mut self, points: &[&EcPoint]) -> Result<BigNum, Error> {
+        // point_bytes = [P1||P2||...||Pn]
         let point_bytes: Result<Vec<u8>, Error> = points.iter().try_fold(
             vec![self.cipher_suite.suite_string(), 0x02],
             |mut acc, point| {
@@ -229,6 +308,7 @@ impl ECVRF {
             },
         );
         let to_be_hashed = point_bytes?;
+        // H(point_bytes)
         let mut hash = hash(self.hasher, &to_be_hashed).map(|hash| hash.to_vec())?;
         hash.truncate(self.n / 8);
         let result = BigNum::from_slice(hash.as_slice())?;
@@ -299,10 +379,23 @@ impl ECVRF {
     }
 }
 
+/// VRFs are objects capable of generating and verifying proofs
 impl VRF<&[u8], &[u8]> for ECVRF {
     type Error = Error;
 
-    // Generate proof from key pair and message
+    /// Generates proof from a secret key and message as specified in the VRF-draft-04.
+    /// (Section 5.1)
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - A slice representing the secret key in octets.
+    ///
+    /// * `alpha` - A slice representing the message in octets
+    ///
+    /// # Returns
+    ///
+    /// * If successful, a vector of octets representing the proof of the VRF.
+
     fn prove(&mut self, x: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         // Step 1: derive public key from secret key
         // Y = x * B
@@ -343,8 +436,10 @@ impl VRF<&[u8], &[u8]> for ECVRF {
             PointConversionForm::COMPRESSED,
             &mut self.bn_ctx,
         )?;
+        // Fixed size; len(c) must be n and len(s)=2n
         let c_string = append_leading_zeros(&c.to_vec(), self.n);
         let s_string = append_leading_zeros(&s.to_vec(), self.qlen);
+        // proof =  [Gamma_string||c_string||s_string]
         let proof = [&gamma_string[..], &c_string, &s_string].concat();
 
         Ok(proof)
