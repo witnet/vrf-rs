@@ -10,5 +10,5 @@ pub trait VRF<PublicKey, SecretKey> {
     fn prove(x: SecretKey, alpha: &[u8]) -> Result<Vec<u8>, Self::Error>;
 
     /// Verify proof given public key, proof and message
-    fn verify(y: PublicKey, pi: &[u8], alpha: &[u8]) -> Result<bool, Self::Error>;
+    fn verify(y: PublicKey, pi: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Self::Error>;
 }

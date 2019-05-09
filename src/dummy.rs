@@ -24,8 +24,8 @@ impl<'a> VRF<PublicKey<'a>, SecretKey<'a>> for DummyVRF {
     }
 
     // Verify proof given public key, proof and message
-    fn verify(_y: PublicKey, _pi: &[u8], _alpha: &[u8]) -> Result<bool, Self::Error> {
-        Ok(false)
+    fn verify(_y: PublicKey, _pi: &[u8], _alpha: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Ok(vec![])
     }
 }
 
@@ -48,6 +48,6 @@ mod test {
         let pi = [0];
         let alpha = [0, 0, 0];
 
-        assert_eq!(DummyVRF::verify(&y, &pi, &alpha).unwrap(), false);
+        assert_eq!(DummyVRF::verify(&y, &pi, &alpha).unwrap(), vec![]);
     }
 }

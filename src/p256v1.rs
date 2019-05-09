@@ -42,6 +42,8 @@ pub enum Error {
     IntegerDivisionError,
     #[fail(display = "InvalidProofLength")]
     InvalidPiLength,
+    #[fail(display = "InvalidProof")]
+    InvalidProof,
     #[fail(display = "Unknown error")]
     Unknown,
 }
@@ -116,7 +118,7 @@ impl<'a> VRF<&'a [u8], &'a [u8]> for ECVRF {
         Ok(proof)
     }
     // Verify proof given public key, proof and message
-    fn verify(y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<bool, Error> {
+    fn verify(y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         let mut ctx = create_ec_context(Curve::NISTP256)?;
 
         // Step 1. decode proof
@@ -126,7 +128,6 @@ impl<'a> VRF<&'a [u8], &'a [u8]> for ECVRF {
         // Step 2. hash to curve
         let public_key_point = EcPoint::from_bytes(&ctx.group, &y, &mut ctx.bn_ctx)?;
         let h_point = hash_to_try_and_increment(&public_key_point, alpha, &mut ctx)?;
-        println!("{:x?}", h_point.to_bytes(&ctx.group, PointConversionForm::COMPRESSED, &mut ctx.bn_ctx));
 
         // Step 3: U = sB -cY
         let mut s_b = EcPoint::new(&ctx.group.as_ref())?;
@@ -150,7 +151,13 @@ impl<'a> VRF<&'a [u8], &'a [u8]> for ECVRF {
         let derived_c = hash_points(&[&h_point, &gamma_point, &u_point, &v_point], &mut ctx)?;
 
         // Step 6: Check validity
-        Ok(derived_c.eq(&c))
+        match derived_c.eq(&c) {
+            True => {
+                let beta = proof_to_hash(&gamma_point, &mut ctx)?;
+                Ok(beta)
+            }
+            False => Err(Error::InvalidProof)
+        }
     }
 }
 
@@ -259,6 +266,13 @@ fn decode_proof(pi: &[u8], ctx: &mut ECContext) -> Result<(EcPoint, BigNum, BigN
     let s = BigNum::from_slice(&pi[gamma_oct + c_oct..])?;
 
     Ok((gamma_point, c, s))
+}
+
+fn proof_to_hash(gamma: &EcPoint, ctx: &mut ECContext) -> Result<Vec<u8>, Error> {
+    let gamma_string = gamma.to_bytes(&ctx.group, PointConversionForm::COMPRESSED, &mut ctx.bn_ctx)?;
+    let hash = hash(ctx.hasher, &[&[P256V1_CIPHER_SUITE], &[0x03], &gamma_string[..]].concat()).map(|hash| hash.to_vec())?;
+
+    Ok(hash)
 }
 
 fn nonce_generation_rfc6979(
@@ -385,9 +399,10 @@ mod test {
                 .unwrap();
         let pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
         let alpha = hex::decode("73616d706c65").unwrap();
+        let expected_beta = hex::decode("59ca3801ad3e981a88e36880a3aee1df38a0472d5be52d6e39663ea0314e594c").unwrap();
 
 
-        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), expected_beta);
     }
 
     #[test]
@@ -411,9 +426,10 @@ mod test {
             .unwrap();
         let pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
         let alpha = hex::decode("74657374").unwrap();
+        let expected_beta = hex::decode("dc85c20f95100626eddc90173ab58d5e4f837bb047fb2f72e9a408feae5bc6c1").unwrap();
 
 
-        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), expected_beta);
     }
     #[test]
     fn test_prove_P256_SHA256_3() {
@@ -436,9 +452,10 @@ mod test {
             .unwrap();
         let pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
         let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
+        let expected_beta = hex::decode("e880bde34ac5263b2ce5c04626870be2cbff1edcdadabd7d4cb7cbc696467168").unwrap();
 
 
-        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), true);
+        assert_eq!(ECVRF::verify(&y, &pi, &alpha).unwrap(), expected_beta);
     }
 
     #[test]
