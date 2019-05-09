@@ -1,0 +1,29 @@
+dist: xenial
+sudo: false
+language: rust
+
+rust:
+- stable
+
+# https://levans.fr/rust_travis_cache.html
+# Need to cache the whole `.cargo` directory to keep .crates.toml for `cargo update` to work...
+# ...but don't cache the cargo registry
+cache:
+  directories:
+    - /home/travis/.cargo
+before_cache:
+  - rm -rf /home/travis/.cargo/registry
+
+env:
+  global:
+    - RUST_BACKTRACE="1"
+
+before_script:
+  - rustup update
+  - rustup component add rustfmt-preview
+  - rustup component add clippy-preview
+
+script:
+  - cargo fmt --all -- --check
+  - cargo test --all --verbose
+  - cargo clippy --all --all-features -- -D warnings
