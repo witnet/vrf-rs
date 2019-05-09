@@ -32,22 +32,28 @@ impl CipherSuite {
     }
 }
 
-/// Error that can be raised when proving/verifying VRFs
+/// Errors that can be raised when proving/verifying VRFs
 #[derive(Debug, Fail)]
 pub enum Error {
+    /// Error raised from `openssl::error::ErrorStack` with a specific code
     #[fail(display = "Error with code {}", code)]
     CodedError { code: c_ulong },
+    /// The `hash_to_point()` function could not find a valid point
     #[fail(display = "Hash to point function could not find a valid point")]
     HashToPointError,
-    #[fail(display = "InvalidProofLength")]
+    /// The proof length is invalid
+    #[fail(display = "The proof length is invalid")]
     InvalidPiLength,
-    #[fail(display = "InvalidProof")]
+    /// The proof is invalid
+    #[fail(display = "The proof is invalid")]
     InvalidProof,
+    /// Unknown error
     #[fail(display = "Unknown error")]
     Unknown,
 }
 
 impl From<ErrorStack> for Error {
+    /// Transforms error from `openssl::error::ErrorStack` to `Error::CodedError` or `Error::Unknown`
     fn from(error: ErrorStack) -> Self {
         match error.errors().get(0).map(openssl::error::Error::code) {
             Some(code) => Error::CodedError { code },
@@ -70,22 +76,26 @@ pub struct ECVRF {
 impl ECVRF {
     /// Function to create a Elliptic Curve context using the curve prime256v1
     pub fn from_suite(suite: CipherSuite) -> Result<Self, Error> {
+        // Context for big number algebra
+        let mut bn_ctx = BigNumContext::new()?;
+
+        // Elliptic Curve parameters
         let group = match suite {
             CipherSuite::P256_SHA256_TAI => EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?,
             CipherSuite::K163_SHA256_TAI => EcGroup::from_curve_name(Nid::SECT163K1)?,
         };
-        let mut bn_ctx = BigNumContext::new()?;
-        let hasher = MessageDigest::sha256();
         let mut order = BigNum::new()?;
         group.order(&mut order, &mut bn_ctx)?;
-
         let mut a = BigNum::new()?;
         let mut b = BigNum::new()?;
         let mut p = BigNum::new()?;
         group.components_gfp(&mut a, &mut b, &mut p, &mut bn_ctx)?;
-
         let n = ((p.num_bits() + (p.num_bits() % 2)) / 2) as usize;
         let qlen = order.num_bits() as usize;
+
+        // Hash algorithm: SHA256
+        // (only P256_SHA256_TAI and K163_SHA256_TAI are currently supported)
+        let hasher = MessageDigest::sha256();
 
         Ok(ECVRF {
             cipher_suite: suite,
@@ -105,17 +115,26 @@ impl ECVRF {
         Ok(point)
     }
 
-    //TODO: add documentation (all)
+    /// Generates a nonce deterministically by following the algorithm described in the RFC6979
+    /// (Section 3.2. __Generation of k__)
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_key`  - A `BigNum` representing the secret key
+    /// * `data`        - A slice of octets (message)
+    ///
+    /// # Returns
+    ///
+    /// * If successful, the `BigNum` representing the nonce
     fn generate_nonce(&mut self, secret_key: &BigNum, data: &[u8]) -> Result<BigNum, Error> {
         // Bits to octets from data - bits2octets(h1)
         // Length of this value should be dependent on qlen (i.e. SECP256k1 is 32)
-        //FIXME: HACK!
-        let hacked_qlen = match self.cipher_suite {
-            CipherSuite::P256_SHA256_TAI => data.len() * 8,
+        //FIXME: VRF-draft-04 test vectors were computed with a wrong `qlen` parameter for `bits2octets`
+        let mod_qlen = match self.cipher_suite {
+            CipherSuite::P256_SHA256_TAI => data.len() * 8, // should be 32 instead of 33 bytes
             CipherSuite::K163_SHA256_TAI => self.qlen,
         };
-
-        let data_trunc = bits2octets(data, hacked_qlen, &self.order, &mut self.bn_ctx)?;
+        let data_trunc = bits2octets(data, mod_qlen, &self.order, &mut self.bn_ctx)?;
         let padded_data_trunc = append_leading_zeros(&data_trunc, self.qlen);
 
         // Bytes to octets from secret key - int2octects(x)
@@ -128,6 +147,7 @@ impl ECVRF {
         let mut v = [0x01; 32];
         let mut k = [0x00; 32];
 
+        // First 2 rounds defined by specification
         for prefix in 0..2 as u8 {
             k = HMAC::mac(
                 [
@@ -143,6 +163,7 @@ impl ECVRF {
             v = HMAC::mac(&v, &k);
         }
 
+        // Loop until valid `BigNum` extracted from V is found
         loop {
             v = HMAC::mac(&v, &k);
             let ret_bn = bits2int(&v, self.qlen)?;
@@ -215,6 +236,16 @@ impl ECVRF {
         Ok(result)
     }
 
+    /// Decodes a VRF proof by extracting the gamma (as `EcPoint`), and parameters `c` and `s`
+    /// (as `BigNum`)
+    ///
+    /// # Arguments
+    ///
+    /// * `pi`  - A slice of octets representing the VRF proof
+    ///
+    /// # Returns
+    ///
+    /// * A tuple containing the gamma point, and parameters `c` and `s`
     fn decode_proof(&mut self, pi: &[u8]) -> Result<(EcPoint, BigNum, BigNum), Error> {
         let gamma_oct = if self.qlen % 8 > 0 {
             self.qlen / 8 + 2
@@ -237,6 +268,16 @@ impl ECVRF {
         Ok((gamma_point, c, s))
     }
 
+    /// Computes the VRF hash output as result of the digest of a ciphersuite-dependent prefix
+    /// concatenated with the gamma point (vrf-draft-04, section 5.2)
+    ///
+    /// # Arguments
+    ///
+    /// * `gamma`  - A EC point representing the VRF gamma
+    ///
+    /// # Returns
+    ///
+    /// * A vector of octets with the VRF hash output
     fn proof_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
         let gamma_string = gamma.to_bytes(
             &self.group,
@@ -308,12 +349,23 @@ impl VRF<&[u8], &[u8]> for ECVRF {
 
         Ok(proof)
     }
-    // Verify proof given public key, proof and message
+
+    /// Verifies the provided VRF proof and computes the VRF hash output
+    /// (vrf-draft-04, section 5.3)
+    ///
+    /// # Arguments
+    ///
+    /// * `y`   - A slice representing the public key in octets.
+    /// * `pi`  - A slice of octets representing the VRF proof
+    ///
+    /// # Returns
+    ///
+    /// * If successful, a vector of octets with the VRF hash output
     fn verify(&mut self, y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
-        // Step 1. decode proof
+        // Step 1: decode proof
         let (gamma_point, c, s) = self.decode_proof(&pi)?;
 
-        // Step 2. hash to curve
+        // Step 2: hash to curve
         let public_key_point = EcPoint::from_bytes(&self.group, &y, &mut self.bn_ctx)?;
         let h_point = self.hash_to_try_and_increment(&public_key_point, alpha)?;
 
@@ -353,154 +405,195 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_derive_public_key() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+
+        let secret_key = BigNum::from_slice(&[0x01]).unwrap();
+        let public_key = vrf.derive_public_key(&secret_key).unwrap();
+        let public_key_bytes = public_key
+            .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
+            .unwrap();
+
+        let expected_point_bytes = vec![
+            0x03, 0x6B, 0x17, 0xD1, 0xF2, 0xE1, 0x2C, 0x42, 0x47, 0xF8, 0xBC, 0xE6, 0xE5, 0x63,
+            0xA4, 0x40, 0xF2, 0x77, 0x03, 0x7D, 0x81, 0x2D, 0xEB, 0x33, 0xA0, 0xF4, 0xA1, 0x39,
+            0x45, 0xD8, 0x98, 0xC2, 0x96,
+        ];
+        assert_eq!(public_key_bytes, expected_point_bytes);
+    }
+
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
+    #[test]
     fn test_prove_p256_sha256_tai_1() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
         // Secret Key (labelled as x)
         let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
-        // Data to be hashed: ASCII "sample
+        // Data: ASCII "sample"
         let alpha = hex::decode("73616d706c65").unwrap();
+
+        let pi = vrf.prove(&x, &alpha).unwrap();
         let expected_pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
-        let pi = ecvrf.prove(&x, &alpha).unwrap();
         assert_eq!(pi, expected_pi);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_1() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
         let y = hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
             .unwrap();
+        // VRF Proof
         let pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
+        // Data: ASCII "sample"
         let alpha = hex::decode("73616d706c65").unwrap();
+
+        let beta = vrf.verify(&y, &pi, &alpha).unwrap();
         let expected_beta =
             hex::decode("59ca3801ad3e981a88e36880a3aee1df38a0472d5be52d6e39663ea0314e594c")
                 .unwrap();
-        assert_eq!(ecvrf.verify(&y, &pi, &alpha).unwrap(), expected_beta);
+        assert_eq!(beta, expected_beta);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "test"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_2() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
         // Secret Key (labelled as x)
         let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
-        // Data to be hashed: ASCII "sample
+        // Data: ASCII "sample"
         let alpha = hex::decode("74657374").unwrap();
+
+        let pi = vrf.prove(&x, &alpha).unwrap();
         let expected_pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
-        let pi = ecvrf.prove(&x, &alpha).unwrap();
         assert_eq!(pi, expected_pi);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "test"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_2() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
         let y = hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
             .unwrap();
+        // VRF Proof
         let pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
+        // Data: ASCII "sample"
         let alpha = hex::decode("74657374").unwrap();
+
+        let beta = vrf.verify(&y, &pi, &alpha).unwrap();
         let expected_beta =
             hex::decode("dc85c20f95100626eddc90173ab58d5e4f837bb047fb2f72e9a408feae5bc6c1")
                 .unwrap();
-        assert_eq!(ecvrf.verify(&y, &pi, &alpha).unwrap(), expected_beta);
+        assert_eq!(beta, expected_beta);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_3() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
         // Secret Key (labelled as x)
         let x = hex::decode("2ca1411a41b17b24cc8c3b089cfd033f1920202a6c0de8abb97df1498d50d2c8")
             .unwrap();
         // Data to be hashed: ASCII "sample
         let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
         let expected_pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
-        let pi = ecvrf.prove(&x, &alpha).unwrap();
+        let pi = vrf.prove(&x, &alpha).unwrap();
         assert_eq!(pi, expected_pi);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_3() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
         let y = hex::decode("03596375e6ce57e0f20294fc46bdfcfd19a39f8161b58695b3ec5b3d16427c274d")
             .unwrap();
+        // VRF Proof
         let pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
+        // Data: ASCII "sample"
         let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
+
+        let beta = vrf.verify(&y, &pi, &alpha).unwrap();
         let expected_beta =
             hex::decode("e880bde34ac5263b2ce5c04626870be2cbff1edcdadabd7d4cb7cbc696467168")
                 .unwrap();
-        assert_eq!(ecvrf.verify(&y, &pi, &alpha).unwrap(), expected_beta);
+        assert_eq!(beta, expected_beta);
     }
 
-    #[test]
-    fn test_derive_public_key() {
-        let k = [0x01];
-        let mut ctx = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
-
-        let secret_key = BigNum::from_slice(&k).unwrap();
-        let expected = [
-            0x03, 0x6B, 0x17, 0xD1, 0xF2, 0xE1, 0x2C, 0x42, 0x47, 0xF8, 0xBC, 0xE6, 0xE5, 0x63,
-            0xA4, 0x40, 0xF2, 0x77, 0x03, 0x7D, 0x81, 0x2D, 0xEB, 0x33, 0xA0, 0xF4, 0xA1, 0x39,
-            0x45, 0xD8, 0x98, 0xC2, 0x96,
-        ];
-        let derived_public_key = ctx.derive_public_key(&secret_key).unwrap();
-        let expected_point = EcPoint::from_bytes(&ctx.group, &expected, &mut ctx.bn_ctx).unwrap();
-        assert!(derived_public_key
-            .eq(&ctx.group, &expected_point, &mut ctx.bn_ctx)
-            .unwrap());
-    }
-
-    /// Hash to try and increment (TAI) test
-    /// Test vector extracted from VRF RFC draft (section A.1)
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+
+        // Public key
         let public_key_hex =
             hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
                 .unwrap();
         let public_key = EcPoint::from_bytes(&vrf.group, &public_key_hex, &mut vrf.bn_ctx).unwrap();
-        let expected_hash_hex =
+
+        // Data to be hashed with TAI (ASCII "sample")
+        let data = hex::decode("73616d706c65").unwrap();
+        let hash = vrf.hash_to_try_and_increment(&public_key, &data).unwrap();
+        let hash_bytes = hash
+            .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
+            .unwrap();
+
+        let expected_hash =
             hex::decode("02e2e1ab1b9f5a8a68fa4aad597e7493095648d3473b213bba120fe42d1a595f3e")
                 .unwrap();
-        let expected_hash =
-            EcPoint::from_bytes(&vrf.group, &expected_hash_hex, &mut vrf.bn_ctx).unwrap();
-        // Data to be hashed: ASCII "sample
-        let data = hex::decode("73616d706c65").unwrap();
-        let derived_hash = vrf.hash_to_try_and_increment(&public_key, &data).unwrap();
-        assert!(derived_hash
-            .eq(&vrf.group, &expected_hash, &mut vrf.bn_ctx)
-            .unwrap());
+        assert_eq!(hash_bytes, expected_hash);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "test"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_2() {
-        // Example of using a different hashing function
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+
+        // Public key
         let public_key_hex =
             hex::decode("03596375e6ce57e0f20294fc46bdfcfd19a39f8161b58695b3ec5b3d16427c274d")
                 .unwrap();
         let public_key = EcPoint::from_bytes(&vrf.group, &public_key_hex, &mut vrf.bn_ctx).unwrap();
-        let expected_hash_hex =
+
+        // Data to be hashed with TAI (ASCII "sample")
+        let data = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
+        let hash = vrf.hash_to_try_and_increment(&public_key, &data).unwrap();
+        let hash_bytes = hash
+            .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
+            .unwrap();
+
+        let expected_hash =
             hex::decode("02141e41d4d55802b0e3adaba114c81137d95fd3869b6b385d4487b1130126648d")
                 .unwrap();
-        let expected_hash =
-            EcPoint::from_bytes(&vrf.group, &expected_hash_hex, &mut vrf.bn_ctx).unwrap();
-        let data = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
-        let derived_hash = vrf.hash_to_try_and_increment(&public_key, &data).unwrap();
-        assert!(derived_hash
-            .eq(&vrf.group, &expected_hash, &mut vrf.bn_ctx)
-            .unwrap());
+        assert_eq!(hash_bytes, expected_hash);
     }
 
-    /// Nonce generation test using the curve K-163
-    /// Test vector extracted from RFC6979 (section A.1)
+    /// Test vector for curve K-163
+    /// Source: RFC6979 (section A.1)
     #[test]
     fn test_generate_nonce_k163() {
         let mut vrf = ECVRF::from_suite(CipherSuite::K163_SHA256_TAI).unwrap();
         let mut ord = BigNum::new().unwrap();
         vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
-
-        // Expected result/nonce (labelled as K or T)
-        // This is the va;ue of T
-        let expected_nonce = hex::decode("023AF4074C90A02B3FE61D286D5C87F425E6BDD81B").unwrap();
 
         // Secret Key (labelled as x)
         let sk = hex::decode("009A4D6792295A7F730FC3F2B49CBC0F62E862272F").unwrap();
@@ -511,26 +604,21 @@ mod test {
             .unwrap();
 
         // Nonce generation
-        let derived_nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
 
-        assert_eq!(derived_nonce.to_vec(), expected_nonce);
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce = hex::decode("023AF4074C90A02B3FE61D286D5C87F425E6BDD81B").unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
+    /// Test vector for curve P-256 with SHA-256
+    /// Message: sample
+    /// Source: RFC6979 (section A.2.5)
     #[test]
     fn test_generate_nonce_p256_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
-        let mut a = BigNum::new().unwrap();
-        let mut b = BigNum::new().unwrap();
-        let mut p = BigNum::new().unwrap();
-        vrf.group
-            .components_gfp(&mut a, &mut b, &mut p, &mut vrf.bn_ctx)
-            .unwrap();
-
-        // Expected result/nonce (labelled as K or T)
-        // This is the va;ue of T
-        let expected_nonce =
-            hex::decode("A6E3C57DD01ABE90086538398355DD4C3B17AA873382B0F24D6129493D8AAD60")
-                .unwrap();
+        let mut ord = BigNum::new().unwrap();
+        vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
 
         // Secret Key (labelled as x)
         let sk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
@@ -538,25 +626,27 @@ mod test {
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
         // Hashed input message (labelled as h1)
-        //FIXME: TO CHECK if 0x02 is correct
         let data = hex::decode("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF")
             .unwrap();
 
         // Nonce generation
-        let derived_nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
-        assert_eq!(derived_nonce.to_vec(), expected_nonce);
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce =
+            hex::decode("A6E3C57DD01ABE90086538398355DD4C3B17AA873382B0F24D6129493D8AAD60")
+                .unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
+    /// Test vector for curve P-256 with SHA-256
+    /// Message: test
+    /// Source: RFC6979 (section A.2.5)
     #[test]
     fn test_generate_nonce_p256_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
         let mut ord = BigNum::new().unwrap();
         vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
-        // Expected result/nonce (labelled as K or T)
-        // This is the value of T
-        let expected_nonce =
-            hex::decode("D16B6AE827F17175E040871A1C7EC3500192C4C92677336EC2537ACAEE0008E0")
-                .unwrap();
 
         // Secret Key (labelled as x)
         let sk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
@@ -564,25 +654,27 @@ mod test {
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
         // Hashed input message (labelled as h1)
-        //FIXME: TO CHECK if 0x02 is correct
         let data = hex::decode("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
             .unwrap();
 
         // Nonce generation
-        let derived_nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
-        assert_eq!(derived_nonce.to_vec(), expected_nonce);
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce =
+            hex::decode("D16B6AE827F17175E040871A1C7EC3500192C4C92677336EC2537ACAEE0008E0")
+                .unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_generate_nonce_p256_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
         let mut ord = BigNum::new().unwrap();
         vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
-        // Expected result/nonce (labelled as K or T)
-        // This is the va;ue of T
-        let expected_nonce =
-            hex::decode("c1aba586552242e6b324ab4b7b26f86239226f3cfa85b1c3b675cc061cf147dc")
-                .unwrap();
 
         // Secret Key (labelled as x)
         let sk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
@@ -590,41 +682,101 @@ mod test {
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
         // Hashed input message (labelled as h1)
-        //FIXME: TO CHECK if 0x02 is correct
         let data =
             hex::decode("02e2e1ab1b9f5a8a68fa4aad597e7493095648d3473b213bba120fe42d1a595f3e")
                 .unwrap();
 
         // Nonce generation
-        let derived_nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
 
-        assert_eq!(derived_nonce.to_vec(), expected_nonce);
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce =
+            hex::decode("c1aba586552242e6b324ab4b7b26f86239226f3cfa85b1c3b675cc061cf147dc")
+                .unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "test"
+    /// Source: vrf-draft-04 (section A.1)
+    #[test]
+    fn test_generate_nonce_p256_4() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut ord = BigNum::new().unwrap();
+        vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
+
+        // Secret Key (labelled as x)
+        let sk = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+        let sk_bn = BigNum::from_slice(&sk).unwrap();
+
+        // Hashed input message (labelled as h1)
+        let data =
+            hex::decode("02ca565721155f9fd596f1c529c7af15dad671ab30c76713889e3d45b767ff6433")
+                .unwrap();
+
+        // Nonce generation
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce =
+            hex::decode("7fc43fbc2aa51886139614792c613e672624b3fb8d0cf3fa6f52543d6a2fc26c")
+                .unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
+    }
+
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
+    /// Source: vrf-draft-04 (section A.1)
+    #[test]
+    fn test_generate_nonce_p256_5() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut ord = BigNum::new().unwrap();
+        vrf.group.order(&mut ord, &mut vrf.bn_ctx).unwrap();
+
+        // Secret Key (labelled as x)
+        let sk = hex::decode("2ca1411a41b17b24cc8c3b089cfd033f1920202a6c0de8abb97df1498d50d2c8")
+            .unwrap();
+        let sk_bn = BigNum::from_slice(&sk).unwrap();
+
+        // Hashed input message (labelled as h1)
+        let data =
+            hex::decode("02141e41d4d55802b0e3adaba114c81137d95fd3869b6b385d4487b1130126648d")
+                .unwrap();
+
+        // Nonce generation
+        let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
+
+        // Expected result/nonce (labelled as K or T)
+        let expected_nonce =
+            hex::decode("111e1505c8531c885dab6607a0962cd40a0af77637cdf183c7c9fb799dded43e")
+                .unwrap();
+        assert_eq!(nonce.to_vec(), expected_nonce);
+    }
+
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_hash_points() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
 
+        // Test input data
         let hash_hex =
             hex::decode("02e2e1ab1b9f5a8a68fa4aad597e7493095648d3473b213bba120fe42d1a595f3e")
                 .unwrap();
-        let hash_point = EcPoint::from_bytes(&vrf.group, &hash_hex, &mut vrf.bn_ctx).unwrap();
-
         let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
             .unwrap();
 
+        // Compute all required points (gamma, u, v)
+        let hash_point = EcPoint::from_bytes(&vrf.group, &hash_hex, &mut vrf.bn_ctx).unwrap();
         let mut gamma_hex = pi_hex.clone();
         let c_s_hex = gamma_hex.split_off(33);
         let gamma_point = EcPoint::from_bytes(&vrf.group, &gamma_hex, &mut vrf.bn_ctx).unwrap();
-
-        let mut c_hex = c_s_hex.clone();
-        c_hex.split_off(16);
-
         let u_hex =
             hex::decode("02007fe22a3ed063db835a63a92cb1e487c4fea264c3f3700ae105f8f3d3fd391f")
                 .unwrap();
         let u_point = EcPoint::from_bytes(&vrf.group, &u_hex, &mut vrf.bn_ctx).unwrap();
-
         let v_hex =
             hex::decode("03d0a63fa7a7fefcc590cb997b21bbd21dc01304102df183fb7115adf6bcbc2a74")
                 .unwrap();
@@ -634,29 +786,33 @@ mod test {
             .hash_points(&[&hash_point, &gamma_point, &u_point, &v_point])
             .unwrap();
 
-        assert_eq!(computed_c.to_vec(), c_hex);
+        let mut expected_c = c_s_hex.clone();
+        expected_c.split_off(16);
+        assert_eq!(computed_c.to_vec(), expected_c);
     }
 
+    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// ASCII: "sample"
+    /// Source: vrf-draft-04 (section A.1)
     #[test]
     fn test_decode_proof() {
-        let mut ecvrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
+        let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
 
         let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
             .unwrap();
-        let (derived_gamma, derived_c, _) = ecvrf.decode_proof(&pi_hex).unwrap();
+        let (derived_gamma, derived_c, _) = vrf.decode_proof(&pi_hex).unwrap();
 
+        // Expected values
         let mut gamma_hex = pi_hex.clone();
         let c_s_hex = gamma_hex.split_off(33);
-
-        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
-        let mut bn_ctx = BigNumContext::new().unwrap();
-        let gamma_point = EcPoint::from_bytes(&group, &gamma_hex, &mut bn_ctx).unwrap();
-
         let mut c_hex = c_s_hex.clone();
         c_hex.split_off(16);
-        let c = BigNum::from_slice(c_hex.as_slice()).unwrap();
+        let expected_gamma = EcPoint::from_bytes(&vrf.group, &gamma_hex, &mut vrf.bn_ctx).unwrap();
+        let expected_c = BigNum::from_slice(c_hex.as_slice()).unwrap();
 
-        assert!(derived_c.eq(&c));
-        assert!(gamma_point.eq(&group, &derived_gamma, &mut bn_ctx).unwrap());
+        assert!(derived_c.eq(&expected_c));
+        assert!(expected_gamma
+            .eq(&vrf.group, &derived_gamma, &mut vrf.bn_ctx)
+            .unwrap());
     }
 }

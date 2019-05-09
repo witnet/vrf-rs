@@ -3,7 +3,16 @@ use openssl::{
     error::ErrorStack,
 };
 
-//TODO: add documentation (none)
+/// Appends leading zeros if provided slice is smaller than given length
+///
+/// # Arguments
+///
+/// * `data`         - A slice of octets.
+/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros
+///
+/// # Returns
+///
+/// * Vector of octets
 pub fn append_leading_zeros(data: &[u8], bits_length: usize) -> Vec<u8> {
     if data.len() * 8 > bits_length {
         return data.to_vec();
@@ -38,18 +47,23 @@ pub fn bits2int(data: &[u8], qlen: usize) -> Result<BigNum, ErrorStack> {
     Ok(result)
 }
 
-//TODO: add documentation (bn - context: bn_ctx, order, qlen)
+/// Transform an input to a sequence of `length` (in bits) and outputs this sequence representing a
+/// number between 0 and `order` (non-inclusive), as specified in RFC6979 (section 2.3.4.)
+///
+/// # Arguments
+///
+/// * `data`         - A slice of octets.
+/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros
+///
+/// # Returns
+///
+/// * Vector of octets
 pub fn bits2octets(
     data: &[u8],
     length: usize,
     order: &BigNum,
     bn_ctx: &mut BigNumContext,
 ) -> Result<Vec<u8>, ErrorStack> {
-    //FIXME: TO DECIDE WHETHER FOLLOW DIFFERENT TEST VECTORS (qlen for both cases)
-    //    let z1 = match ctx.cipher_suite {
-    //        CipherSuite::P256_SHA256_TAI => bits2int(data, data.len() * 8)?,
-    //        CipherSuite::K163_SHA256_TAI => bits2int(data, ctx.qlen)?,
-    //    };
     let z1 = bits2int(data, length)?;
     let result = BigNum::new().and_then(|mut res| {
         res.nnmod(&z1, order, bn_ctx)?;
