@@ -1,3 +1,4 @@
+//! Sample module implementing a __dummy__ (to be used as example) Verifiable Random Function (VRF)
 use crate::VRF;
 use failure::Error;
 

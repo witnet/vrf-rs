@@ -1,5 +1,7 @@
 //! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) funcionality.
-//! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979). In particular, it computes:
+//! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979).
+//!
+//! In particular, it computes:
 //!
 //! * The ECVRF_hash_to_curve uses the ECVRF_hash_to_curve_try_and_increment algorithm in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
 //! * The ECVRF_nonce_generation is specified in Section 3.2 of [RFC6979](https://tools.ietf.org/html/rfc6979)
@@ -9,6 +11,7 @@
 //! While the supported ciphersuites are:
 //! * _P256_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST P-256 curve
 //! * _K163_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST K-163 curve
+//! * _SECP256K1_SHA256_TAI: the aforementioned algorithms with sha256 and the secp256k1 curve
 //!
 //! ## Documentation
 //! * [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
@@ -42,6 +45,8 @@ mod utils;
 pub enum CipherSuite {
     /// NIST P-256 with Sha256 and ECVRF_hash_to_curve_try_and_increment
     P256_SHA256_TAI,
+    /// Secp256k1 with Sha256 and ECVRF_hash_to_curve_try_and_increment
+    SECP256K1_SHA256_TAI,
     /// NIST K-163 with Sha256 and ECVRF_hash_to_curve_try_and_increment
     K163_SHA256_TAI,
 }
@@ -50,6 +55,7 @@ impl CipherSuite {
     fn suite_string(&self) -> u8 {
         match *self {
             CipherSuite::P256_SHA256_TAI => 0x01,
+            CipherSuite::SECP256K1_SHA256_TAI => 0xFE,
             CipherSuite::K163_SHA256_TAI => 0xFF,
         }
     }
@@ -126,6 +132,7 @@ impl ECVRF {
                 (EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?, 0x01)
             }
             CipherSuite::K163_SHA256_TAI => (EcGroup::from_curve_name(Nid::SECT163K1)?, 0x02),
+            CipherSuite::SECP256K1_SHA256_TAI => (EcGroup::from_curve_name(Nid::SECP256K1)?, 0x01),
         };
 
         let mut order = BigNum::new()?;
@@ -187,7 +194,7 @@ impl ECVRF {
         //FIXME: VRF-draft-04 test vectors were computed with a wrong `qlen` parameter for `bits2octets`
         let mod_qlen = match self.cipher_suite {
             CipherSuite::P256_SHA256_TAI => data.len() * 8, // should be 32 instead of 33 bytes
-            CipherSuite::K163_SHA256_TAI => self.qlen,
+            _ => self.qlen,
         };
         let data_trunc = bits2octets(data, mod_qlen, &self.order, &mut self.bn_ctx)?;
         let padded_data_trunc = append_leading_zeros(&data_trunc, self.qlen);
@@ -410,19 +417,17 @@ impl ECVRF {
 impl VRF<&[u8], &[u8]> for ECVRF {
     type Error = Error;
 
-    /// Generates proof from a secret key and message as specified in the VRF-draft-04.
-    /// (Section 5.1)
+    /// Generates proof from a secret key and message as specified in the VRF-draft-04
+    /// (vrf-draft-04, section 5.1)
     ///
     /// # Arguments
     ///
-    /// * `x` - A slice representing the secret key in octets.
-    ///
+    /// * `x` - A slice representing the secret key in octets
     /// * `alpha` - A slice representing the message in octets
     ///
     /// # Returns
     ///
-    /// * If successful, a vector of octets representing the proof of the VRF.
-
+    /// * If successful, a vector of octets representing the proof of the VRF
     fn prove(&mut self, x: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         // Step 1: derive public key from secret key
         // Y = x * B
@@ -477,7 +482,7 @@ impl VRF<&[u8], &[u8]> for ECVRF {
     ///
     /// # Arguments
     ///
-    /// * `y`   - A slice representing the public key in octets.
+    /// * `y`   - A slice representing the public key in octets
     /// * `pi`  - A slice of octets representing the VRF proof
     ///
     /// # Returns
@@ -936,5 +941,47 @@ mod test {
         assert!(expected_gamma
             .eq(&vrf.group, &derived_gamma, &mut vrf.bn_ctx)
             .unwrap());
+    }
+
+    /// Test for Ciphersuite SECP256K1-SHA256-TAI
+    /// ASCII: "sample"
+    #[test]
+    fn test_prove_secp256k1_sha256_tai() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+        // Secret Key (labelled as x)
+        let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+            .unwrap();
+        let secret_key = BigNum::from_slice(&x).unwrap();
+        let public_key = vrf.derive_public_key(&secret_key).unwrap();
+        let public_key_bytes = public_key
+            .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
+            .unwrap();
+        println!("{:x?}", public_key_bytes);
+        // Data: ASCII "sample"
+        let alpha = hex::decode("73616d706c65").unwrap();
+
+        let pi = vrf.prove(&x, &alpha).unwrap();
+        let expected_pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0800851b42ee92f76d98c1f19e4a1e855526b20afe0dd6eb232a493adc107eb2b0f1").unwrap();
+        assert_eq!(pi, expected_pi);
+    }
+
+    /// Test for Ciphersuite SECP256K1-SHA256-TAI
+    /// ASCII: "sample"
+    #[test]
+    fn test_verify_secp256k1_sha256_tai() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
+        let y = hex::decode("032c8c31fc9f990c6b55e3865a184a4ce50e09481f2eaeb3e60ec1cea13a6ae645")
+            .unwrap();
+        // Data: ASCII "sample"
+        let alpha = hex::decode("73616d706c65").unwrap();
+        // VRF proof
+        let pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0800851b42ee92f76d98c1f19e4a1e855526b20afe0dd6eb232a493adc107eb2b0f1").unwrap();
+
+        let beta = vrf.verify(&y, &pi, &alpha).unwrap();
+        let expected_beta =
+            hex::decode("612065e309e937ef46c2ef04d5886b9c6efd2991ac484ec64a9b014366fc5d81")
+                .unwrap();
+        assert_eq!(beta, expected_beta);
     }
 }
