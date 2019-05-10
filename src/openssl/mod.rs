@@ -101,6 +101,8 @@ pub struct ECVRF {
     qlen: usize,
     // 2n = length of a field element in bits rounded up to the nearest even integer
     n: usize,
+    // Cofactor of the curve
+    cofactor: u8,
 }
 
 impl ECVRF {
@@ -119,10 +121,13 @@ impl ECVRF {
         let mut bn_ctx = BigNumContext::new()?;
 
         // Elliptic Curve parameters
-        let group = match suite {
-            CipherSuite::P256_SHA256_TAI => EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?,
-            CipherSuite::K163_SHA256_TAI => EcGroup::from_curve_name(Nid::SECT163K1)?,
+        let (group, cofactor) = match suite {
+            CipherSuite::P256_SHA256_TAI => {
+                (EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?, 0x01)
+            }
+            CipherSuite::K163_SHA256_TAI => (EcGroup::from_curve_name(Nid::SECT163K1)?, 0x02),
         };
+
         let mut order = BigNum::new()?;
         group.order(&mut order, &mut bn_ctx)?;
         let mut a = BigNum::new()?;
@@ -144,6 +149,7 @@ impl ECVRF {
             hasher,
             n,
             qlen,
+            cofactor,
         })
     }
 
@@ -252,7 +258,7 @@ impl ECVRF {
         let mut v = [&cipher[..], &pk_bytes[..], &alpha[..], &[0x00]].concat();
         let position = v.len() - 1;
         // Hash(cipher||PK||data)
-        let point = c.find_map(|ctr| {
+        let mut point = c.find_map(|ctr| {
             v[position] = ctr;
             let attempted_hash = hash(self.hasher, &v);
             // Check validity of H
@@ -261,6 +267,17 @@ impl ECVRF {
                 _ => None,
             }
         });
+
+        if let Some(pt) = point.as_mut() {
+            let mut new_pt = EcPoint::new(&self.group.as_ref())?;
+            new_pt.mul(
+                &self.group.as_ref(),
+                &pt,
+                &BigNum::from_slice(&[self.cofactor])?.as_ref(),
+                &self.bn_ctx,
+            )?;
+            *pt = new_pt;
+        }
         // Return error if no valid point was found
         point.ok_or(Error::HashToPointError)
     }
@@ -359,11 +376,21 @@ impl ECVRF {
     ///
     /// * A vector of octets with the VRF hash output
     fn proof_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
-        let gamma_string = gamma.to_bytes(
+        // Multiply gamma with cofactor
+        let mut gamma_cof = EcPoint::new(&self.group.as_ref())?;
+        gamma_cof.mul(
+            &self.group.as_ref(),
+            &gamma,
+            &BigNum::from_slice(&[self.cofactor])?.as_ref(),
+            &self.bn_ctx,
+        )?;
+
+        let gamma_string = gamma_cof.to_bytes(
             &self.group,
             PointConversionForm::COMPRESSED,
             &mut self.bn_ctx,
         )?;
+
         let hash = hash(
             self.hasher,
             &[
