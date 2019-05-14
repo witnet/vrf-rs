@@ -1,4 +1,4 @@
-//! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) funcionality.
+//! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) functionality.
 //! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979).
 //!
 //! In particular, it provides:
