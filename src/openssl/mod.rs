@@ -171,11 +171,32 @@ impl ECVRF {
     /// # Returns
     ///
     /// * If successful, an `EcPoint` representing the public key.
-    fn derive_public_key(&mut self, secret_key: &BigNum) -> Result<EcPoint, Error> {
+    fn derive_public_key_point(&mut self, secret_key: &BigNum) -> Result<EcPoint, Error> {
         let mut point = EcPoint::new(&self.group.as_ref())?;
         // secret_key = point*generator
         point.mul_generator(&self.group, &secret_key, &self.bn_ctx)?;
         Ok(point)
+    }
+
+    /// Function for deriving a public key given a secret key point.
+    /// Returns a vector of octets with the corresponding public key.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_key` - A `BigNum` referencing the secret key.
+    ///
+    /// # Returns
+    ///
+    /// * If successful, a `Vec<u8>` representing the public key.
+    pub fn derive_public_key(&mut self, secret_key: &[u8]) -> Result<Vec<u8>, Error> {
+        let secret_key_bn = BigNum::from_slice(&secret_key)?;
+        let point = self.derive_public_key_point(&secret_key_bn)?;
+        let bytes = point.to_bytes(
+            &self.group,
+            PointConversionForm::COMPRESSED,
+            &mut self.bn_ctx,
+        )?;
+        Ok(bytes)
     }
 
     /// Generates a nonce deterministically by following the algorithm described in the [RFC6979](https://tools.ietf.org/html/rfc6979)
@@ -433,7 +454,7 @@ impl VRF<&[u8], &[u8]> for ECVRF {
         // `Y = x * B`
         //TODO: validate secret key length?
         let secret_key = BigNum::from_slice(x)?;
-        let public_key_point = self.derive_public_key(&secret_key)?;
+        let public_key_point = self.derive_public_key_point(&secret_key)?;
 
         // Step 2: Hash to curve
         let h_point = self.hash_to_try_and_increment(&public_key_point, alpha)?;
@@ -536,7 +557,7 @@ mod test {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
 
         let secret_key = BigNum::from_slice(&[0x01]).unwrap();
-        let public_key = vrf.derive_public_key(&secret_key).unwrap();
+        let public_key = vrf.derive_public_key_point(&secret_key).unwrap();
         let public_key_bytes = public_key
             .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
             .unwrap();
@@ -952,7 +973,7 @@ mod test {
         let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
         let secret_key = BigNum::from_slice(&x).unwrap();
-        let public_key = vrf.derive_public_key(&secret_key).unwrap();
+        let public_key = vrf.derive_public_key_point(&secret_key).unwrap();
         let public_key_bytes = public_key
             .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
             .unwrap();
