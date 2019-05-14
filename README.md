@@ -25,18 +25,28 @@ Currently the supported cipher suites are:
 Create and verify a VRF proof by using the cipher suite `SECP256K1_SHA256_TAI`:
 
 ```rust
-    use vrf::VRF;
-    use vrf::openssl::{CipherSuite, ECVRF};
+use vrf::openssl::{CipherSuite, ECVRF};
+use vrf::VRF;
 
+fn main() {
     // Initialization of VRF context by providing a curve
-    let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI)?;
+    let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+    // Inputs: Secret Key, Public Key (derived) & Message
+    let secret_key =
+        hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721").unwrap();
+    let public_key = vrf.derive_public_key(&secret_key).unwrap();
+    let message: &[u8] = b"sample";
     
-    // `prove` returns a `Result` with the VRF proof as `Vec<u8>`
-    let proof = vrf.prove(&secret_key, &message)?;
-    
-    // `verify` returns a `Result` with the VRF hash output as `Vec<u8>`
-    let proof_hash = vrf.verify(&public_key, &pi, &message);
+    // VRF proof and hash output
+    let pi = vrf.prove(&secret_key, &message).unwrap();
+    let hash = vrf.proof_to_hash(&pi).unwrap();
+
+    // VRF proof verification (returns VRF hash output)
+    let beta = vrf.verify(&public_key, &pi, &message);
+}
 ```
+
+A complete example can be found in [examples/basic.rs](https://github.com/witnet/vrf-rs/blob/master/examples/basic.rs)
 
 ## Adding unsupported cipher suites
 
@@ -54,6 +64,6 @@ pub trait VRF<PublicKey, SecretKey> {
 
 ## License
 
-vrf-rs is published under the [GNU General Public License v3.0][license].
+`vrf-rs` is published under the [GNU General Public License v3.0][license].
 
 [license]: https://github.com/witnet/vrf-rs/blob/master/LICENSE
