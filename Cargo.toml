@@ -1,6 +1,6 @@
 [package]
 name = "vrf"
-version = "0.1.0"
+version = "0.1.1"
 description = "An implementation of Verifiable Random Functions (VRFs)"
 keywords = ["vrf", "ecvrf", "secp256k1", "p256", "k163"]
 categories = ["algorithms", "cryptography"]
