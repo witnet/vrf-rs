@@ -403,7 +403,7 @@ impl ECVRF {
     /// # Returns
     ///
     /// * A vector of octets with the VRF hash output.
-    fn proof_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
+    fn gamma_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
         // Multiply gamma with cofactor
         let mut gamma_cof = EcPoint::new(&self.group.as_ref())?;
         gamma_cof.mul(
@@ -431,6 +431,22 @@ impl ECVRF {
         .map(|hash| hash.to_vec())?;
 
         Ok(hash)
+    }
+
+    /// Computes the VRF hash output as result of the digest of a ciphersuite-dependent prefix
+    /// concatenated with the gamma point ([vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04), section 5.2).
+    ///
+    /// # Arguments
+    ///
+    /// * `pi`  - A slice representing the VRF proof in octets.
+    ///
+    /// # Returns
+    ///
+    /// * If successful, a vector of octets with the VRF hash output.
+    pub fn proof_to_hash(&mut self, pi: &[u8]) -> Result<Vec<u8>, Error> {
+        let (gamma_point, _, _) = self.decode_proof(&pi)?;
+
+        self.gamma_to_hash(&gamma_point)
     }
 }
 
@@ -542,7 +558,7 @@ impl VRF<&[u8], &[u8]> for ECVRF {
         if !derived_c.eq(&c) {
             return Err(Error::InvalidProof);
         }
-        let beta = self.proof_to_hash(&gamma_point)?;
+        let beta = self.gamma_to_hash(&gamma_point)?;
 
         Ok(beta)
     }
