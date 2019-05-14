@@ -3,16 +3,16 @@ use openssl::{
     error::ErrorStack,
 };
 
-/// Appends leading zeros if provided slice is smaller than given length
+/// Appends leading zeros if provided slice is smaller than given length.
 ///
 /// # Arguments
 ///
 /// * `data`         - A slice of octets.
-/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros
+/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros.
 ///
 /// # Returns
 ///
-/// * Vector of octets
+/// * A vector of octets with leading zeros (if necessary)
 pub fn append_leading_zeros(data: &[u8], bits_length: usize) -> Vec<u8> {
     if data.len() * 8 > bits_length {
         return data.to_vec();
@@ -27,18 +27,17 @@ pub fn append_leading_zeros(data: &[u8], bits_length: usize) -> Vec<u8> {
     [&leading_zeros[..], &data].concat()
 }
 
-/// Converts a slice of octets into a BigNum of length `qlen` as specified RFC6979.
-/// (Section 2.3.2)
+/// Converts a slice of octets into a `BigNum` of length `qlen` as specified in [RFC6979](https://tools.ietf.org/html/rfc6979)
+/// (section 2.3.2).
 ///
 /// # Arguments
 ///
 /// * `data` - A slice representing the number to be converted.
-///
-/// * `qlen` - The desired length of the BigNum
+/// * `qlen` - The desired length for the output `BigNum`.
 ///
 /// # Returns
 ///
-/// * If successful, a BigNum representing the conversion
+/// * If successful, a `BigNum` representing the conversion.
 pub fn bits2int(data: &[u8], qlen: usize) -> Result<BigNum, ErrorStack> {
     let data_len_bits = data.len() * 8;
     let result = BigNum::from_slice(data).and_then(|data_bn| {
@@ -57,17 +56,17 @@ pub fn bits2int(data: &[u8], qlen: usize) -> Result<BigNum, ErrorStack> {
     Ok(result)
 }
 
-/// Transform an input to a sequence of `length` (in bits) and outputs this sequence representing a
-/// number between 0 and `order` (non-inclusive), as specified in RFC6979 (section 2.3.4.)
+/// Transform an input to a sequence of `length` (in bits) and output this sequence representing a
+/// number between 0 and `order` (non-inclusive), as specified in [RFC6979](https://tools.ietf.org/html/rfc6979) (section 2.3.4.).
 ///
 /// # Arguments
 ///
 /// * `data`         - A slice of octets.
-/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros
+/// * `bits_length`  - An integer to specify the total length (in bits) after appending zeros.
 ///
 /// # Returns
 ///
-/// * Vector of octets
+/// * If successful, a vector of octets.
 pub fn bits2octets(
     data: &[u8],
     length: usize,
@@ -103,9 +102,9 @@ mod test {
         assert_eq!(result2.to_vec(), expected_result_2.to_vec());
     }
 
-    /// Test vector taken from RFC6979
-    /// Input: sha256("sample")
-    /// qlen=163
+    /// Test vector taken from [RFC6979](https://tools.ietf.org/html/rfc6979)
+    /// Input: `sha256("sample")`
+    /// `qlen=163`
     #[test]
     fn test_bits2octets() {
         let data = hex::decode("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF")

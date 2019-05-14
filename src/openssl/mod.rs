@@ -1,24 +1,26 @@
 //! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) funcionality.
 //! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979).
 //!
-//! In particular, it computes:
+//! In particular, it provides:
 //!
-//! * The ECVRF_hash_to_curve uses the ECVRF_hash_to_curve_try_and_increment algorithm in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
-//! * The ECVRF_nonce_generation is specified in Section 3.2 of [RFC6979](https://tools.ietf.org/html/rfc6979)
+//! * `ECVRF_hash_to_curve` as in the `ECVRF_hash_to_curve_try_and_increment` algorithm from [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * `ECVRF_nonce_generation` as specified in Section 3.2 of [RFC6979](https://tools.ietf.org/html/rfc6979)
 //!
-//! Note that in our case the input data is public, and thus possible information leaks in the form of timing side channels are irrelevant.
+//! Warning: if input data is private, information leaks in the form of timing side channels are possible.
 //!
-//! While the supported ciphersuites are:
-//! * _P256_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST P-256 curve
-//! * _K163_SHA256_TAI_: the aforementioned algorithms with sha256 and the NIST K-163 curve
-//! * _SECP256K1_SHA256_TAI: the aforementioned algorithms with sha256 and the secp256k1 curve
+//! Currently the supported cipher suites are:
+//! * _P256_SHA256_TAI_: the aforementioned algorithms with `SHA256` and the `NIST P-256` curve.
+//! * _K163_SHA256_TAI_: the aforementioned algorithms with `SHA256` and the `NIST K-163` curve.
+//! * _SECP256K1_SHA256_TAI_: the aforementioned algorithms with `SHA256` and the `secp256k1` curve.
 //!
 //! ## Documentation
+//!
 //! * [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
 //! * [RFC6979](https://tools.ietf.org/html/rfc6979)
 //! * [GitHub repository](https://github.com/witnet/vrf-rs)
 //!
 //!  ## Features
+//!
 //! * Compute VRF proof
 //! * Verify VRF proof
 use std::os::raw::c_ulong;
@@ -41,13 +43,13 @@ use self::utils::{append_leading_zeros, bits2int, bits2octets};
 mod utils;
 
 #[allow(non_camel_case_types)]
-/// Different ciphersuites for different curves/algorithms
+/// Different cipher suites for different curves/algorithms
 pub enum CipherSuite {
-    /// NIST P-256 with Sha256 and ECVRF_hash_to_curve_try_and_increment
+    /// `NIST P-256` with `SHA256` and `ECVRF_hash_to_curve_try_and_increment`
     P256_SHA256_TAI,
-    /// Secp256k1 with Sha256 and ECVRF_hash_to_curve_try_and_increment
+    /// `Secp256k1` with `SHA256` and `ECVRF_hash_to_curve_try_and_increment`
     SECP256K1_SHA256_TAI,
-    /// NIST K-163 with Sha256 and ECVRF_hash_to_curve_try_and_increment
+    /// `NIST K-163` with `SHA256` and `ECVRF_hash_to_curve_try_and_increment`
     K163_SHA256_TAI,
 }
 
@@ -91,7 +93,7 @@ impl From<ErrorStack> for Error {
     }
 }
 
-/// A Elliptic Curve VRF
+/// An Elliptic Curve VRF
 pub struct ECVRF {
     // Bignumber arithmetic context
     bn_ctx: BigNumContext,
@@ -101,7 +103,7 @@ pub struct ECVRF {
     group: EcGroup,
     // Hasher structure
     hasher: MessageDigest,
-    // order of the curve
+    // The order of the curve
     order: BigNum,
     // Length of the order of the curve in bits
     qlen: usize,
@@ -112,16 +114,15 @@ pub struct ECVRF {
 }
 
 impl ECVRF {
-    /// Function to create an ECVRF object with initialized context from a ciphersuite.
-    /// Returns an ECVRF object with initialized context to the ciphersuite provided
+    /// Factory method for creating a ECVRF structure with a context that is initialized for the provided cipher suite.
     ///
     /// # Arguments
     ///
     /// * `suite` - A ciphersuite identifying the curve/algorithms.
     ///
-    ///  Returns
+    /// # Returns
     ///
-    /// * If successful, the ECVRF object.
+    /// * If successful, the ECVRF structure.
     pub fn from_suite(suite: CipherSuite) -> Result<Self, Error> {
         // Context for big number algebra
         let mut bn_ctx = BigNumContext::new()?;
@@ -144,8 +145,8 @@ impl ECVRF {
         let n = ((p.num_bits() + (p.num_bits() % 2)) / 2) as usize;
         let qlen = order.num_bits() as usize;
 
-        // Hash algorithm: SHA256
-        // (only P256_SHA256_TAI and K163_SHA256_TAI are currently supported)
+        // Hash algorithm: `SHA256`
+        // (only `P256_SHA256_TAI`, `K163_SHA256_TAI` and `SECP256K1_SHA256_TAI` are currently supported)
         let hasher = MessageDigest::sha256();
 
         Ok(ECVRF {
@@ -160,16 +161,16 @@ impl ECVRF {
         })
     }
 
-    /// Function for deriving public key given a secret key point.
-    /// Returns an EcPoint with the corresponding public key
+    /// Function for deriving a public key given a secret key point.
+    /// Returns an `EcPoint` with the corresponding public key.
     ///
     /// # Arguments
     ///
-    /// * `secret_key` - A BigNum referencing the secret key.
+    /// * `secret_key` - A `BigNum` referencing the secret key.
     ///
-    ///  Returns
+    /// # Returns
     ///
-    /// * If successful, an EcPoint representing the public key.
+    /// * If successful, an `EcPoint` representing the public key.
     fn derive_public_key(&mut self, secret_key: &BigNum) -> Result<EcPoint, Error> {
         let mut point = EcPoint::new(&self.group.as_ref())?;
         // secret_key = point*generator
@@ -177,20 +178,20 @@ impl ECVRF {
         Ok(point)
     }
 
-    /// Generates a nonce deterministically by following the algorithm described in the RFC6979
-    /// (Section 3.2. __Generation of k__)
+    /// Generates a nonce deterministically by following the algorithm described in the [RFC6979](https://tools.ietf.org/html/rfc6979)
+    /// (section 3.2. __Generation of k__).
     ///
     /// # Arguments
     ///
-    /// * `secret_key`  - A `BigNum` representing the secret key
-    /// * `data`        - A slice of octets (message)
+    /// * `secret_key`  - A `BigNum` representing the secret key.
+    /// * `data`        - A slice of octets (message).
     ///
     /// # Returns
     ///
-    /// * If successful, the `BigNum` representing the nonce
+    /// * If successful, the `BigNum` representing the nonce.
     fn generate_nonce(&mut self, secret_key: &BigNum, data: &[u8]) -> Result<BigNum, Error> {
         // Bits to octets from data - bits2octets(h1)
-        // Length of this value should be dependent on qlen (i.e. SECP256k1 is 32)
+        // Length of this value should be dependent on qlen (i.e. `SECP256k1` is 32)
         //FIXME: VRF-draft-04 test vectors were computed with a wrong `qlen` parameter for `bits2octets`
         let mod_qlen = match self.cipher_suite {
             CipherSuite::P256_SHA256_TAI => data.len() * 8, // should be 32 instead of 33 bytes
@@ -204,13 +205,13 @@ impl ECVRF {
         let padded_secret_key_bytes: Vec<u8> =
             append_leading_zeros(&secret_key.to_vec(), self.qlen);
 
-        // Init V & K
-        // K = HMAC_K(V || 0x00 || int2octects(secret_key) || bits2octects(data))
+        // Init `V` & `K`
+        // `K = HMAC_K(V || 0x00 || int2octects(secret_key) || bits2octects(data))`
         let mut v = [0x01; 32];
         let mut k = [0x00; 32];
 
         // First 2 rounds defined by specification
-        for prefix in 0..2 as u8 {
+        for prefix in 0..2u8 {
             k = HMAC::mac(
                 [
                     &v[..],
@@ -225,7 +226,7 @@ impl ECVRF {
             v = HMAC::mac(&v, &k);
         }
 
-        // Loop until valid `BigNum` extracted from V is found
+        // Loop until valid `BigNum` extracted from `V` is found
         loop {
             v = HMAC::mac(&v, &k);
             let ret_bn = bits2int(&v, self.qlen)?;
@@ -238,18 +239,17 @@ impl ECVRF {
         }
     }
 
-    /// Function to convert a Hash(PK|DATA) to a point in the curve as stated in the VRF-draft-04.
-    /// (Section 5.4.1.1)
+    /// Function to convert a `Hash(PK|DATA)` to a point in the curve as stated in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+    /// (section 5.4.1.1).
     ///
     /// # Arguments
     ///
-    /// * `public_key` - An EcPoint referencing the public key.
-    ///
+    /// * `public_key` - An `EcPoint` referencing the public key.
     /// * `alpha` - A slice containing the input data.
     ///
-    ///  Returns
+    /// # Returns
     ///
-    /// * If successful, an EcPoint representing the hashed point.
+    /// * If successful, an `EcPoint` representing the hashed point.
     fn hash_to_try_and_increment(
         &mut self,
         public_key: &EcPoint,
@@ -264,11 +264,11 @@ impl ECVRF {
         let cipher = [self.cipher_suite.suite_string(), 0x01];
         let mut v = [&cipher[..], &pk_bytes[..], &alpha[..], &[0x00]].concat();
         let position = v.len() - 1;
-        // Hash(cipher||PK||data)
+        // `Hash(cipher||PK||data)`
         let mut point = c.find_map(|ctr| {
             v[position] = ctr;
             let attempted_hash = hash(self.hasher, &v);
-            // Check validity of H
+            // Check validity of `H`
             match attempted_hash {
                 Ok(attempted_hash) => self.arbitrary_string_to_point(&attempted_hash).ok(),
                 _ => None,
@@ -289,16 +289,16 @@ impl ECVRF {
         point.ok_or(Error::HashToPointError)
     }
 
-    /// Function to convert an arbitrary string to a point in the curve as specified in VRF-draft-04.
-    /// (Section 5.5)
+    /// Function to convert an arbitrary string to a point in the curve as specified in VRF-draft-04
+    /// (section 5.5).
     ///
     /// # Arguments
     ///
     /// * `data` - A slice representing the data to be converted to a point.
     ///
-    ///  Returns
+    /// # Returns
     ///
-    /// * If successful, an EcPoint representing the converted point.
+    /// * If successful, an `EcPoint` representing the converted point.
     fn arbitrary_string_to_point(&mut self, data: &[u8]) -> Result<EcPoint, Error> {
         let mut v = vec![0x02];
         v.extend(data);
@@ -306,16 +306,16 @@ impl ECVRF {
         Ok(point)
     }
 
-    /// Function to hash a certain set of points as specified in the VRF-draft-04.
-    /// (Section 5.4.3)
+    /// Function to hash a certain set of points as specified in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+    /// (section 5.4.3).
     ///
     /// # Arguments
     ///
     /// * `points` - A reference to an array containing the points that need to be hashed.
     ///
-    ///  Returns
+    /// # Returns
     ///
-    /// * If successful, a BigNum representing the hash of the points, truncated to length `n`.
+    /// * If successful, a `BigNum` representing the hash of the points, truncated to length `n`.
     fn hash_points(&mut self, points: &[&EcPoint]) -> Result<BigNum, Error> {
         // point_bytes = [P1||P2||...||Pn]
         let point_bytes: Result<Vec<u8>, Error> = points.iter().try_fold(
@@ -341,15 +341,15 @@ impl ECVRF {
     }
 
     /// Decodes a VRF proof by extracting the gamma (as `EcPoint`), and parameters `c` and `s`
-    /// (as `BigNum`)
+    /// (as `BigNum`).
     ///
     /// # Arguments
     ///
-    /// * `pi`  - A slice of octets representing the VRF proof
+    /// * `pi`  - A slice of octets representing the VRF proof.
     ///
     /// # Returns
     ///
-    /// * A tuple containing the gamma point, and parameters `c` and `s`
+    /// * A tuple containing the gamma `EcPoint`, and `BigNum` parameters `c` and `s`.
     fn decode_proof(&mut self, pi: &[u8]) -> Result<(EcPoint, BigNum, BigNum), Error> {
         let gamma_oct = if self.qlen % 8 > 0 {
             self.qlen / 8 + 2
@@ -373,15 +373,15 @@ impl ECVRF {
     }
 
     /// Computes the VRF hash output as result of the digest of a ciphersuite-dependent prefix
-    /// concatenated with the gamma point (vrf-draft-04, section 5.2)
+    /// concatenated with the gamma point ([vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04), section 5.2).
     ///
     /// # Arguments
     ///
-    /// * `gamma`  - A EC point representing the VRF gamma
+    /// * `gamma`  - An `EcPoint` representing the VRF gamma.
     ///
     /// # Returns
     ///
-    /// * A vector of octets with the VRF hash output
+    /// * A vector of octets with the VRF hash output.
     fn proof_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
         // Multiply gamma with cofactor
         let mut gamma_cof = EcPoint::new(&self.group.as_ref())?;
@@ -413,24 +413,24 @@ impl ECVRF {
     }
 }
 
-/// VRFs are objects capable of generating and verifying proofs
+/// VRFs are objects capable of generating and verifying proofs.
 impl VRF<&[u8], &[u8]> for ECVRF {
     type Error = Error;
 
-    /// Generates proof from a secret key and message as specified in the VRF-draft-04
-    /// (vrf-draft-04, section 5.1)
+    /// Generates proof from a secret key and message as specified in the
+    /// [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section 5.1).
     ///
     /// # Arguments
     ///
-    /// * `x` - A slice representing the secret key in octets
-    /// * `alpha` - A slice representing the message in octets
+    /// * `x` - A slice representing the secret key in octets.
+    /// * `alpha` - A slice representing the message in octets.
     ///
     /// # Returns
     ///
-    /// * If successful, a vector of octets representing the proof of the VRF
+    /// * If successful, a vector of octets representing the proof of the VRF.
     fn prove(&mut self, x: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         // Step 1: derive public key from secret key
-        // Y = x * B
+        // `Y = x * B`
         //TODO: validate secret key length?
         let secret_key = BigNum::from_slice(x)?;
         let public_key_point = self.derive_public_key(&secret_key)?;
@@ -477,17 +477,17 @@ impl VRF<&[u8], &[u8]> for ECVRF {
         Ok(proof)
     }
 
-    /// Verifies the provided VRF proof and computes the VRF hash output
-    /// (vrf-draft-04, section 5.3)
+    /// Verifies the provided VRF proof and computes the VRF hash output as specified in
+    /// [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section 5.3).
     ///
     /// # Arguments
     ///
-    /// * `y`   - A slice representing the public key in octets
-    /// * `pi`  - A slice of octets representing the VRF proof
+    /// * `y`   - A slice representing the public key in octets.
+    /// * `pi`  - A slice of octets representing the VRF proof.
     ///
     /// # Returns
     ///
-    /// * If successful, a vector of octets with the VRF hash output
+    /// * If successful, a vector of octets with the VRF hash output.
     fn verify(&mut self, y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         // Step 1: decode proof
         let (gamma_point, c, s) = self.decode_proof(&pi)?;
@@ -549,9 +549,9 @@ mod test {
         assert_eq!(public_key_bytes, expected_point_bytes);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -566,9 +566,9 @@ mod test {
         assert_eq!(pi, expected_pi);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -587,9 +587,9 @@ mod test {
         assert_eq!(beta, expected_beta);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -604,9 +604,9 @@ mod test {
         assert_eq!(pi, expected_pi);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -625,9 +625,9 @@ mod test {
         assert_eq!(beta, expected_beta);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -641,9 +641,9 @@ mod test {
         assert_eq!(pi, expected_pi);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -662,9 +662,9 @@ mod test {
         assert_eq!(beta, expected_beta);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -688,9 +688,9 @@ mod test {
         assert_eq!(hash_bytes, expected_hash);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -714,8 +714,8 @@ mod test {
         assert_eq!(hash_bytes, expected_hash);
     }
 
-    /// Test vector for curve K-163
-    /// Source: RFC6979 (section A.1)
+    /// Test vector for `K-163` curve
+    /// Source: [RFC6979](https://tools.ietf.org/html/rfc6979) (section A.1)
     #[test]
     fn test_generate_nonce_k163() {
         let mut vrf = ECVRF::from_suite(CipherSuite::K163_SHA256_TAI).unwrap();
@@ -738,9 +738,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for curve P-256 with SHA-256
+    /// Test vector for `P-256` curve with `SHA-256`
     /// Message: sample
-    /// Source: RFC6979 (section A.2.5)
+    /// Source: [RFC6979](https://tools.ietf.org/html/rfc6979) (section A.2.5)
     #[test]
     fn test_generate_nonce_p256_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -766,9 +766,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for curve P-256 with SHA-256
+    /// Test vector for `P-256` curve with `SHA-256`
     /// Message: test
-    /// Source: RFC6979 (section A.2.5)
+    /// Source: [RFC6979](https://tools.ietf.org/html/rfc6979) (section A.2.5)
     #[test]
     fn test_generate_nonce_p256_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -794,9 +794,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_generate_nonce_p256_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -823,9 +823,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_generate_nonce_p256_4() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -852,9 +852,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_generate_nonce_p256_5() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -881,9 +881,9 @@ mod test {
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_hash_points() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -918,9 +918,9 @@ mod test {
         assert_eq!(computed_c.to_vec(), expected_c);
     }
 
-    /// Test vector for Ciphersuite P256-SHA256-TAI
+    /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: vrf-draft-04 (section A.1)
+    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
     #[test]
     fn test_decode_proof() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -943,7 +943,7 @@ mod test {
             .unwrap());
     }
 
-    /// Test for Ciphersuite SECP256K1-SHA256-TAI
+    /// Test for `SECP256K1-SHA256-TAI` cipher suite
     /// ASCII: "sample"
     #[test]
     fn test_prove_secp256k1_sha256_tai() {
@@ -965,7 +965,7 @@ mod test {
         assert_eq!(pi, expected_pi);
     }
 
-    /// Test for Ciphersuite SECP256K1-SHA256-TAI
+    /// Test for `SECP256K1-SHA256-TAI` cipher suite
     /// ASCII: "sample"
     #[test]
     fn test_verify_secp256k1_sha256_tai() {
