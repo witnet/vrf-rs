@@ -23,7 +23,11 @@
 //!
 //! * Compute VRF proof
 //! * Verify VRF proof
-use std::os::raw::c_ulong;
+use std::fmt;
+use std::{
+    fmt::{Debug, Formatter},
+    os::raw::c_ulong,
+};
 
 use failure::Fail;
 use hmac_sha256::HMAC;
@@ -42,8 +46,9 @@ use self::utils::{append_leading_zeros, bits2int, bits2octets};
 
 mod utils;
 
-#[allow(non_camel_case_types)]
 /// Different cipher suites for different curves/algorithms
+#[allow(non_camel_case_types)]
+#[derive(Debug)]
 pub enum CipherSuite {
     /// `NIST P-256` with `SHA256` and `ECVRF_hash_to_curve_try_and_increment`
     P256_SHA256_TAI,
@@ -99,6 +104,8 @@ pub struct ECVRF {
     bn_ctx: BigNumContext,
     // Ciphersuite identification
     cipher_suite: CipherSuite,
+    // Cofactor of the curve
+    cofactor: u8,
     // Elliptic curve group
     group: EcGroup,
     // Hasher structure
@@ -109,8 +116,18 @@ pub struct ECVRF {
     qlen: usize,
     // 2n = length of a field element in bits rounded up to the nearest even integer
     n: usize,
-    // Cofactor of the curve
-    cofactor: u8,
+}
+
+impl Debug for ECVRF {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        fmt.debug_struct("ECVRF")
+            .field("cipher_suite", &self.cipher_suite)
+            .field("cofactor", &self.cofactor)
+            .field("qlen", &self.qlen)
+            .field("n", &self.n)
+            .field("order", &self.order)
+            .finish()
+    }
 }
 
 impl ECVRF {
