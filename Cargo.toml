@@ -1,10 +1,10 @@
 [package]
 name = "vrf"
-version = "0.1.1"
-description = "An implementation of Verifiable Random Functions (VRFs)"
+version = "0.1.2"
+description = "Fast and extensible Verifiable Random Function (VRF) library; currently supporting secp256k1, secp256r1 and sect163k1 curves"
 keywords = ["vrf", "ecvrf", "secp256k1", "p256", "k163"]
 categories = ["algorithms", "cryptography"]
-license = "GPL-3.0"
+license = "MIT"
 authors = ["Witnet Foundation <info@witnet.foundation>"]
 edition = "2018"
 homepage = "https://github.com/witnet/vrf-rs"

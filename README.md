@@ -16,8 +16,8 @@ It follows the algorithms described in:
 
 Currently the supported cipher suites are:
 
-* `P256_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `NIST P-256` curve.
-* `K163_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `NIST K-163` curve.
+* `P256_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256r1` (aka `NIST P-256`) curve.
+* `K163_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `sect163k1` (aka `NIST K-163`) curve.
 * `SECP256K1_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256k1` curve.
 
 ### Example
