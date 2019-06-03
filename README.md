@@ -16,8 +16,8 @@ It follows the algorithms described in:
 
 Currently the supported cipher suites are:
 
-* `P256_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256r1` (aka `NIST P-256`) curve.
-* `K163_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `sect163k1` (aka `NIST K-163`) curve.
+* `P256_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256r1` curve (aka `NIST P-256`).
+* `K163_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `sect163k1` curve (aka `NIST K-163`).
 * `SECP256K1_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256k1` curve.
 
 ### Example
@@ -64,6 +64,6 @@ pub trait VRF<PublicKey, SecretKey> {
 
 ## License
 
-`vrf-rs` is published under the [GNU General Public License v3.0][license].
+`vrf-rs` is published under the [MIT license][license].
 
 [license]: https://github.com/witnet/vrf-rs/blob/master/LICENSE
