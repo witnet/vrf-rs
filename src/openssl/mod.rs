@@ -158,7 +158,7 @@ impl ECVRF {
         let mut a = BigNum::new()?;
         let mut b = BigNum::new()?;
         let mut p = BigNum::new()?;
-        group.components_gfp(&mut a, &mut b, &mut p, &mut bn_ctx)?;
+        group.components_gfp(&mut p, &mut a, &mut b, &mut bn_ctx)?;
         let n = ((p.num_bits() + (p.num_bits() % 2)) / 2) as usize;
         let qlen = order.num_bits() as usize;
 
@@ -1015,7 +1015,7 @@ mod test {
         let alpha = hex::decode("73616d706c65").unwrap();
 
         let pi = vrf.prove(&x, &alpha).unwrap();
-        let expected_pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0800851b42ee92f76d98c1f19e4a1e855526b20afe0dd6eb232a493adc107eb2b0f1").unwrap();
+        let expected_pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0814faa89697b482daa377fb6b4a8b0191a65d34a6d90a8a2461e5db9205d4cf0bb4b2c31b5ef6997a585a9f1a72517b6f").unwrap();
         assert_eq!(pi, expected_pi);
     }
 
@@ -1030,12 +1030,29 @@ mod test {
         // Data: ASCII "sample"
         let alpha = hex::decode("73616d706c65").unwrap();
         // VRF proof
-        let pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0800851b42ee92f76d98c1f19e4a1e855526b20afe0dd6eb232a493adc107eb2b0f1").unwrap();
+        let pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0814faa89697b482daa377fb6b4a8b0191a65d34a6d90a8a2461e5db9205d4cf0bb4b2c31b5ef6997a585a9f1a72517b6f").unwrap();
 
         let beta = vrf.verify(&y, &pi, &alpha).unwrap();
         let expected_beta =
             hex::decode("612065e309e937ef46c2ef04d5886b9c6efd2991ac484ec64a9b014366fc5d81")
                 .unwrap();
         assert_eq!(beta, expected_beta);
+    }
+
+    /// Test for false positives in verification:
+    /// Verify should fail if the message has changed.
+    #[test]
+    fn test_verify_secp256k1_sha256_tai_bad_message() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
+        let y = hex::decode("032c8c31fc9f990c6b55e3865a184a4ce50e09481f2eaeb3e60ec1cea13a6ae645")
+            .unwrap();
+        // VRF proof
+        let pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0800851b42ee92f76d98c1f19e4a1e855526b20afe0dd6eb232a493adc107eb2b0f1").unwrap();
+
+        // Verify the proof with a different message will fail
+        // The original message was "sample"
+        let alpha2 = b"notsample".to_vec();
+        assert!(vrf.verify(&y, &pi, &alpha2).is_err());
     }
 }
