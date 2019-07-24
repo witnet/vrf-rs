@@ -54,12 +54,15 @@ fn main() {
             let public_key = vrf.derive_public_key(&secret_key).unwrap();
             // VRF proof
             let pi = vrf.prove(&secret_key, &message).unwrap();
+            // VRF proof to hash
+            let hash = vrf.proof_to_hash(&pi).unwrap();
 
             json!({
                 "priv": val.get("k"),
                 "pub": to_hex_string(public_key),
                 "message": to_hex_string(message.to_vec()),
-                "pi": to_hex_string(pi)
+                "pi": to_hex_string(pi),
+                "hash": to_hex_string(hash)
             })
         })
         .collect();
