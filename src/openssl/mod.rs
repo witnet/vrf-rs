@@ -1,9 +1,9 @@
 //! Module that uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) functionality.
-//! This module follows the algorithms described in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) and [RFC6979](https://tools.ietf.org/html/rfc6979).
+//! This module follows the algorithms described in [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) and [RFC6979](https://tools.ietf.org/html/rfc6979).
 //!
 //! In particular, it provides:
 //!
-//! * `ECVRF_hash_to_curve` as in the `ECVRF_hash_to_curve_try_and_increment` algorithm from [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * `ECVRF_hash_to_curve` as in the `ECVRF_hash_to_curve_try_and_increment` algorithm from [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
 //! * `ECVRF_nonce_generation` as specified in Section 3.2 of [RFC6979](https://tools.ietf.org/html/rfc6979)
 //!
 //! Warning: if input data is private, information leaks in the form of timing side channels are possible.
@@ -15,7 +15,7 @@
 //!
 //! ## Documentation
 //!
-//! * [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
 //! * [RFC6979](https://tools.ietf.org/html/rfc6979)
 //! * [GitHub repository](https://github.com/witnet/vrf-rs)
 //!
@@ -229,13 +229,10 @@ impl ECVRF {
     /// * If successful, the `BigNum` representing the nonce.
     fn generate_nonce(&mut self, secret_key: &BigNum, data: &[u8]) -> Result<BigNum, Error> {
         // Bits to octets from data - bits2octets(h1)
-        // Length of this value should be dependent on qlen (i.e. `SECP256k1` is 32)
-        //FIXME: VRF-draft-04 test vectors were computed with a wrong `qlen` parameter for `bits2octets`
-        let mod_qlen = match self.cipher_suite {
-            CipherSuite::P256_SHA256_TAI => data.len() * 8, // should be 32 instead of 33 bytes
-            _ => self.qlen,
-        };
-        let data_trunc = bits2octets(data, mod_qlen, &self.order, &mut self.bn_ctx)?;
+        // We follow the new VRF-draft-05 in which the input is hashed`
+        let data_hash = hash(self.hasher, &data)?;
+
+        let data_trunc = bits2octets(&data_hash, self.qlen, &self.order, &mut self.bn_ctx)?;
         let padded_data_trunc = append_leading_zeros(&data_trunc, self.qlen);
 
         // Bytes to octets from secret key - int2octects(x)
@@ -277,7 +274,7 @@ impl ECVRF {
         }
     }
 
-    /// Function to convert a `Hash(PK|DATA)` to a point in the curve as stated in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+    /// Function to convert a `Hash(PK|DATA)` to a point in the curve as stated in [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
     /// (section 5.4.1.1).
     ///
     /// # Arguments
@@ -327,7 +324,7 @@ impl ECVRF {
         point.ok_or(Error::HashToPointError)
     }
 
-    /// Function to convert an arbitrary string to a point in the curve as specified in VRF-draft-04
+    /// Function to convert an arbitrary string to a point in the curve as specified in VRF-draft-05
     /// (section 5.5).
     ///
     /// # Arguments
@@ -344,7 +341,7 @@ impl ECVRF {
         Ok(point)
     }
 
-    /// Function to hash a certain set of points as specified in [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+    /// Function to hash a certain set of points as specified in [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
     /// (section 5.4.3).
     ///
     /// # Arguments
@@ -411,7 +408,7 @@ impl ECVRF {
     }
 
     /// Computes the VRF hash output as result of the digest of a ciphersuite-dependent prefix
-    /// concatenated with the gamma point ([vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04), section 5.2).
+    /// concatenated with the gamma point ([VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05), section 5.2).
     ///
     /// # Arguments
     ///
@@ -451,7 +448,7 @@ impl ECVRF {
     }
 
     /// Computes the VRF hash output as result of the digest of a ciphersuite-dependent prefix
-    /// concatenated with the gamma point ([vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04), section 5.2).
+    /// concatenated with the gamma point ([VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05), section 5.2).
     ///
     /// # Arguments
     ///
@@ -472,7 +469,7 @@ impl VRF<&[u8], &[u8]> for ECVRF {
     type Error = Error;
 
     /// Generates proof from a secret key and message as specified in the
-    /// [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section 5.1).
+    /// [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section 5.1).
     ///
     /// # Arguments
     ///
@@ -532,7 +529,7 @@ impl VRF<&[u8], &[u8]> for ECVRF {
     }
 
     /// Verifies the provided VRF proof and computes the VRF hash output as specified in
-    /// [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section 5.3).
+    /// [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section 5.3).
     ///
     /// # Arguments
     ///
@@ -605,7 +602,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -616,13 +613,13 @@ mod test {
         let alpha = hex::decode("73616d706c65").unwrap();
 
         let pi = vrf.prove(&x, &alpha).unwrap();
-        let expected_pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
+        let expected_pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524347fc46ccd87843ec0a9fdc090a407c6fbae8ac1480e240c58854897eabbc3a7bb61b201059f89186e7175af796d65e7").unwrap();
         assert_eq!(pi, expected_pi);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -630,7 +627,7 @@ mod test {
         let y = hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
             .unwrap();
         // VRF Proof
-        let pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab").unwrap();
+        let pi = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524347fc46ccd87843ec0a9fdc090a407c6fbae8ac1480e240c58854897eabbc3a7bb61b201059f89186e7175af796d65e7").unwrap();
         // Data: ASCII "sample"
         let alpha = hex::decode("73616d706c65").unwrap();
 
@@ -643,7 +640,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -654,13 +651,13 @@ mod test {
         let alpha = hex::decode("74657374").unwrap();
 
         let pi = vrf.prove(&x, &alpha).unwrap();
-        let expected_pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
+        let expected_pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c94ffd2b31588b5fe034fd92c87de5b520b12084da6c4ab63080a7c5467094a1ee84b80b59aca54bba2e2baa0d108191b").unwrap();
         assert_eq!(pi, expected_pi);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -668,7 +665,7 @@ mod test {
         let y = hex::decode("0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6")
             .unwrap();
         // VRF Proof
-        let pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c9c8b100049e76661dbcf6393e4d625597ed21d4de684e08dc6817b60938f3ff4148823ea46a47fa8a4d43f5fa6f77dc8").unwrap();
+        let pi = hex::decode("03873a1cce2ca197e466cc116bca7b1156fff599be67ea40b17256c4f34ba2549c94ffd2b31588b5fe034fd92c87de5b520b12084da6c4ab63080a7c5467094a1ee84b80b59aca54bba2e2baa0d108191b").unwrap();
         // Data: ASCII "sample"
         let alpha = hex::decode("74657374").unwrap();
 
@@ -681,7 +678,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_prove_p256_sha256_tai_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -690,14 +687,14 @@ mod test {
             .unwrap();
         // Data to be hashed: ASCII "sample
         let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
-        let expected_pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
+        let expected_pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d415a680736f7c33f6c796e367f7b2f467026495907affb124be9711cf0e2d05722d3a33e11d0c5bf932b8f0c5ed1981b64").unwrap();
         let pi = vrf.prove(&x, &alpha).unwrap();
         assert_eq!(pi, expected_pi);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_verify_p256_sha256_tai_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -705,7 +702,7 @@ mod test {
         let y = hex::decode("03596375e6ce57e0f20294fc46bdfcfd19a39f8161b58695b3ec5b3d16427c274d")
             .unwrap();
         // VRF Proof
-        let pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d41fd212750d9ff775527943049053a77252e9fa59e332a2e5d5db6d0be734076e98befcdefdcbaf817a5c13d4e45fbf9bc").unwrap();
+        let pi = hex::decode("02abe3ce3b3aa2ab3c6855a7e729517ebfab6901c2fd228f6fa066f15ebc9b9d415a680736f7c33f6c796e367f7b2f467026495907affb124be9711cf0e2d05722d3a33e11d0c5bf932b8f0c5ed1981b64").unwrap();
         // Data: ASCII "sample"
         let alpha = hex::decode("4578616d706c65206f66204543445341207769746820616e736970323536723120616e64205348412d323536").unwrap();
 
@@ -718,7 +715,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_1() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -744,7 +741,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_hash_to_try_and_increment_2() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -781,8 +778,7 @@ mod test {
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
         // Hashed input message (labelled as h1)
-        let data = hex::decode("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF")
-            .unwrap();
+        let data = hex::decode("73616d706c65").unwrap();
 
         // Nonce generation
         let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
@@ -806,9 +802,8 @@ mod test {
             .unwrap();
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
-        // Hashed input message (labelled as h1)
-        let data = hex::decode("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF")
-            .unwrap();
+        // Data: ASCII "sample"
+        let data = hex::decode("73616d706c65").unwrap();
 
         // Nonce generation
         let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
@@ -834,9 +829,8 @@ mod test {
             .unwrap();
         let sk_bn = BigNum::from_slice(&sk).unwrap();
 
-        // Hashed input message (labelled as h1)
-        let data = hex::decode("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
-            .unwrap();
+        // Data: ASCII "test"
+        let data = hex::decode("74657374").unwrap();
 
         // Nonce generation
         let nonce = vrf.generate_nonce(&sk_bn, &data).unwrap();
@@ -850,7 +844,7 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_generate_nonce_p256_3() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -872,14 +866,14 @@ mod test {
 
         // Expected result/nonce (labelled as K or T)
         let expected_nonce =
-            hex::decode("c1aba586552242e6b324ab4b7b26f86239226f3cfa85b1c3b675cc061cf147dc")
+            hex::decode("b7de5757b28c349da738409dfba70763ace31a6b15be8216991715fbc833e5fa")
                 .unwrap();
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "test"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_generate_nonce_p256_4() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -901,14 +895,14 @@ mod test {
 
         // Expected result/nonce (labelled as K or T)
         let expected_nonce =
-            hex::decode("7fc43fbc2aa51886139614792c613e672624b3fb8d0cf3fa6f52543d6a2fc26c")
+            hex::decode("c3c4f385523b814e1794f22ad1679c952e83bff78583c85eb5c2f6ea6eee2e7d")
                 .unwrap();
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "Example of ECDSA with ansip256r1 and SHA-256"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_generate_nonce_p256_5() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -930,14 +924,14 @@ mod test {
 
         // Expected result/nonce (labelled as K or T)
         let expected_nonce =
-            hex::decode("111e1505c8531c885dab6607a0962cd40a0af77637cdf183c7c9fb799dded43e")
+            hex::decode("6ac8f1efa102bdcdcc8db99b755d39bc995491e3f9dea076add1905a92779610")
                 .unwrap();
         assert_eq!(nonce.to_vec(), expected_nonce);
     }
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_hash_points() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
@@ -946,20 +940,18 @@ mod test {
         let hash_hex =
             hex::decode("02e2e1ab1b9f5a8a68fa4aad597e7493095648d3473b213bba120fe42d1a595f3e")
                 .unwrap();
-        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
-            .unwrap();
-
+        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524347fc46ccd87843ec0a9fdc090a407c6fbae8ac1480e240c58854897eabbc3a7bb61b201059f89186e7175af796d65e7").unwrap();
         // Compute all required points (gamma, u, v)
         let hash_point = EcPoint::from_bytes(&vrf.group, &hash_hex, &mut vrf.bn_ctx).unwrap();
         let mut gamma_hex = pi_hex.clone();
         let c_s_hex = gamma_hex.split_off(33);
         let gamma_point = EcPoint::from_bytes(&vrf.group, &gamma_hex, &mut vrf.bn_ctx).unwrap();
         let u_hex =
-            hex::decode("02007fe22a3ed063db835a63a92cb1e487c4fea264c3f3700ae105f8f3d3fd391f")
+            hex::decode("030286d82c95d54feef4d39c000f8659a5ce00a5f71d3a888bd1b8e8bf07449a50")
                 .unwrap();
         let u_point = EcPoint::from_bytes(&vrf.group, &u_hex, &mut vrf.bn_ctx).unwrap();
         let v_hex =
-            hex::decode("03d0a63fa7a7fefcc590cb997b21bbd21dc01304102df183fb7115adf6bcbc2a74")
+            hex::decode("03e4258b4a5f772ed29830050712fa09ea8840715493f78e5aaaf7b27248efc216")
                 .unwrap();
         let v_point = EcPoint::from_bytes(&vrf.group, &v_hex, &mut vrf.bn_ctx).unwrap();
 
@@ -974,12 +966,12 @@ mod test {
 
     /// Test vector for `P256-SHA256-TAI` cipher suite
     /// ASCII: "sample"
-    /// Source: [vrf-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04) (section A.1)
+    /// Source: [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05) (section A.1)
     #[test]
     fn test_decode_proof() {
         let mut vrf = ECVRF::from_suite(CipherSuite::P256_SHA256_TAI).unwrap();
 
-        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524193b7a850195ef3d5329018a8683114cb446c33fe16ebcc0bc775b043b5860dcb2e553d91268281688438df9394103ab")
+        let pi_hex = hex::decode("029bdca4cc39e57d97e2f42f88bcf0ecb1120fb67eb408a856050dbfbcbf57c524347fc46ccd87843ec0a9fdc090a407c6fbae8ac1480e240c58854897eabbc3a7bb61b201059f89186e7175af796d65e7")
             .unwrap();
         let (derived_gamma, derived_c, _) = vrf.decode_proof(&pi_hex).unwrap();
 
@@ -1005,17 +997,11 @@ mod test {
         // Secret Key (labelled as x)
         let x = hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
             .unwrap();
-        let secret_key = BigNum::from_slice(&x).unwrap();
-        let public_key = vrf.derive_public_key_point(&secret_key).unwrap();
-        let public_key_bytes = public_key
-            .to_bytes(&vrf.group, PointConversionForm::COMPRESSED, &mut vrf.bn_ctx)
-            .unwrap();
-        println!("{:x?}", public_key_bytes);
         // Data: ASCII "sample"
         let alpha = hex::decode("73616d706c65").unwrap();
 
         let pi = vrf.prove(&x, &alpha).unwrap();
-        let expected_pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d0814faa89697b482daa377fb6b4a8b0191a65d34a6d90a8a2461e5db9205d4cf0bb4b2c31b5ef6997a585a9f1a72517b6f").unwrap();
+        let expected_pi = hex::decode("031f4dbca087a1972d04a07a779b7df1caa99e0f5db2aa21f3aecc4f9e10e85d08748c9fbe6b95d17359707bfb8e8ab0c93ba0c515333adcb8b64f372c535e115ccf66ebf5abe6fadb01b5efb37c0a0ec9").unwrap();
         assert_eq!(pi, expected_pi);
     }
 

@@ -8,7 +8,7 @@
 //!
 //! It follows the algorithms described in:
 //!
-//! * [VRF-draft-04](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-04)
+//! * [VRF-draft-05](https://tools.ietf.org/pdf/draft-irtf-cfrg-vrf-05)
 //! * [RFC6979](https://tools.ietf.org/html/rfc6979)
 //!
 //! Currently the supported cipher suites are:
