@@ -1,6 +1,6 @@
 [package]
 name = "vrf"
-version = "0.2.1"
+version = "0.2.2"
 description = "Fast and extensible Verifiable Random Function (VRF) library; currently supporting secp256k1, secp256r1 and sect163k1 curves"
 keywords = ["vrf", "ecvrf", "secp256k1", "p256", "k163"]
 categories = ["algorithms", "cryptography"]
@@ -20,7 +20,7 @@ travis-ci = { repository = "witnet/vrf-rs", branch = "master" }
 failure = "0.1.5"
 openssl = "0.10"
 hex = "0.3.2"
-hmac-sha256 = "0.1.1"
+hmac-sha256 = "0.1.2"
 
 [dev-dependencies]
 serde = { version = "1.0.90", features = ["derive"] }
