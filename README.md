@@ -5,6 +5,13 @@
 
 _DISCLAIMER: This is experimental software. Be careful!_
 
+The library can be built using `cargo` and the examples can be executed with:
+
+```bash
+cargo build
+cargo run --example <example_name>
+```
+
 ## Elliptic Curve VRF
 
 This module uses the OpenSSL library to offer Elliptic Curve Verifiable Random Function (VRF) functionality.
@@ -46,7 +53,11 @@ fn main() {
 }
 ```
 
-A complete example can be found in [examples/basic.rs](https://github.com/witnet/vrf-rs/blob/master/examples/basic.rs)
+A complete example can be found in [examples/basic.rs](https://github.com/witnet/vrf-rs/blob/master/examples/basic.rs). It can be executed with:
+
+```bash
+cargo run --example basic
+```
 
 ## Adding unsupported cipher suites
 
