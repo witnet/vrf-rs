@@ -16,7 +16,6 @@
 //! * `P256_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `NIST P-256` curve.
 //! * `K163_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `NIST K-163` curve.
 //! * `SECP256K1_SHA256_TAI`: the aforementioned algorithms with `SHA256` and the `secp256k1` curve.
-pub mod dummy;
 pub mod openssl;
 
 /// A trait containing the common capabilities for all Verifiable Random Functions (VRF) implementations.
