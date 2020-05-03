@@ -1,6 +1,6 @@
-//! # Basic example
+//! # Client example
 //!
-//! This example shows a basic usage of the `vrf-rs` crate:
+//! This example shows a command line client usage of the `vrf-rs` crate:
 //!
 //! 1. Instantiate the `ECVRF` by specifying the `CipherSuite`
 //! 2. Generate a VRF proof by using the `prove()` function
@@ -31,11 +31,11 @@ fn main() {
     let matches = clap_app!(vrf =>
         (version: crate_version!())
         (author: "Vixify Network")
-        (about: "CLI to Verifiable Random Functions")
+        (about: "Client to Verifiable Random Functions")
         (@arg VERBOSE: -v --verbose "Log verbosely to stderr.  This command does not currently log anything, so this option currently has no affect.")
-        (@arg SECRET_KEY: +required {is_hex_ok} "Secret key to be used." )
-        (@arg MESSAGE: +required "Message to be used." )
-        //(@arg PROOF: +required {is_hex_ok} "VRF Proof to be validated." )
+        (@arg SECRET_KEY: +required {is_hex_ok} "Secret key to be used to print or validate proof" )
+        (@arg MESSAGE: +required "Message to be used to print or validate proof." )
+        (@arg PROOF: {is_hex_ok} "Optional VRF Proof to be validated. If missing, proof is printed for secret and message." )
     )
     .get_matches();
 
@@ -43,45 +43,33 @@ fn main() {
     let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
     // Inputs: Secret Key, Public Key (derived) & Message
     let secret_key = hex::decode(&matches.value_of("SECRET_KEY").unwrap()).unwrap();
-    //let secret_key =
-    //    hex::decode("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721").unwrap();
     let public_key = vrf.derive_public_key(&secret_key).unwrap();
-    //let message: &[u8] = b"sample";
     let message = &matches.value_of("MESSAGE").unwrap().as_bytes();
 
-    // VRF proof and hash output
-    let pi = vrf.prove(&secret_key, &message).unwrap();
+    let mut pi = vrf.prove(&secret_key, &message).unwrap();
     let hash = vrf.proof_to_hash(&pi).unwrap();
-    println!("{}", hex::encode(&pi));
+
+    // VRF proof and hash output
+    let proof_given = matches.value_of("PROOF") != None;
+    if proof_given {
+        pi = hex::decode(&matches.value_of("PROOF").unwrap()).unwrap();
+    } else {
+        println!("{}", hex::encode(&pi));
+    }
 
     let beta = vrf.verify(&public_key, &pi, &message);
-    //let beta = hex::decode(&matches.value_of("PROOF").unwrap()).unwrap();
 
-/*    
-    let beta :[i8];
-    // VRF proof verification (returns VRF hash output)
-    if &matches.value_of("PROOF").unwrap() == None {
-        beta = vrf.verify(&public_key, &pi, &message);
-    } else {
-        beta = hex::decode(&matches.value_of("PROOF").unwrap()).unwrap();
-    }
+    if proof_given {
 
-    if hash == beta {
-        println!("VRF proof is valid!\nHash output: {}", hex::encode(&beta));
-        assert_eq!(hash, beta);
-    } else {
-        println!("VRF proof is not valid: proof ={},  expectd = {}", hex::encode(&beta), hex::encode(&hash));
-    }
-*/
-    match beta {
-        Ok(beta) => {
-            //println!("VRF proof is valid!\nHash output: {}", hex::encode(&beta));
-            assert_eq!(hash, beta);
-        }
-        Err(_e) => {
-            //println!("VRF proof is not valid: {}", e);
+        match beta {
+            Ok(beta) => {
+                println!("VRF proof is valid!");
+                assert_eq!(hash, beta);
+            }
+            Err(_e) => {
+                println!("VRF proof is not valid!");
+            }
         }
     }
-
 
 }
