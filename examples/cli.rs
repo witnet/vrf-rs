@@ -9,7 +9,6 @@
 
 use vrf::openssl::{CipherSuite, ECVRF};
 use vrf::VRF;
-use hex;
 
 #[macro_use]
 extern crate clap;
