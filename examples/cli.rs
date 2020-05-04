@@ -7,9 +7,9 @@
 //! 3. (Optional) Convert the VRF proof to a hash (e.g. to be used as pseudo-random value)
 //! 4. Verify a VRF proof by using `verify()` function
 
+use hex;
 use vrf::openssl::{CipherSuite, ECVRF};
 use vrf::VRF;
-use hex;
 
 #[macro_use]
 extern crate clap;
@@ -27,7 +27,6 @@ macro_rules! gen_validator {
 gen_validator!(is_hex_ok, hex::decode);
 
 fn main() {
-
     let matches = clap_app!(vrf =>
         (version: crate_version!())
         (author: "Vixify Network")
@@ -38,7 +37,6 @@ fn main() {
         (@arg PROOF: {is_hex_ok} "Optional VRF Proof to be validated. If missing, proof is printed for secret and message." )
     )
     .get_matches();
-
 
     let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
     // Inputs: Secret Key, Public Key (derived) & Message
@@ -60,7 +58,6 @@ fn main() {
     let beta = vrf.verify(&public_key, &pi, &message);
 
     if proof_given {
-
         match beta {
             Ok(beta) => {
                 println!("VRF proof is valid!");
@@ -71,5 +68,4 @@ fn main() {
             }
         }
     }
-
 }
