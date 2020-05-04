@@ -39,7 +39,6 @@ fn main() {
     )
     .get_matches();
 
-
     let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
     // Inputs: Secret Key, Public Key (derived) & Message
     let secret_key = hex::decode(&matches.value_of("SECRET_KEY").unwrap()).unwrap();
