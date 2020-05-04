@@ -60,7 +60,6 @@ fn main() {
     let beta = vrf.verify(&public_key, &pi, &message);
 
     if proof_given {
-
         match beta {
             Ok(beta) => {
                 println!("VRF proof is valid!");
