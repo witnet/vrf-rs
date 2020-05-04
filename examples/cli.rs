@@ -27,7 +27,6 @@ macro_rules! gen_validator {
 gen_validator!(is_hex_ok, hex::decode);
 
 fn main() {
-
     let matches = clap_app!(vrf =>
         (version: crate_version!())
         (author: "Vixify Network")
