@@ -24,7 +24,7 @@ pub fn append_leading_zeros(data: &[u8], bits_length: usize) -> Vec<u8> {
         vec![0; bits_length / 8 - data.len()]
     };
 
-    [&leading_zeros[..], &data].concat()
+    [&leading_zeros[..], data].concat()
 }
 
 /// Converts a slice of octets into a `BigNum` of length `qlen` as specified in [RFC6979](https://tools.ietf.org/html/rfc6979)

@@ -189,9 +189,9 @@ impl ECVRF {
     ///
     /// * If successful, an `EcPoint` representing the public key.
     fn derive_public_key_point(&mut self, secret_key: &BigNum) -> Result<EcPoint, Error> {
-        let mut point = EcPoint::new(&self.group.as_ref())?;
+        let mut point = EcPoint::new(self.group.as_ref())?;
         // secret_key = point*generator
-        point.mul_generator(&self.group, &secret_key, &self.bn_ctx)?;
+        point.mul_generator(&self.group, secret_key, &self.bn_ctx)?;
         Ok(point)
     }
 
@@ -206,7 +206,7 @@ impl ECVRF {
     ///
     /// * If successful, a `Vec<u8>` representing the public key.
     pub fn derive_public_key(&mut self, secret_key: &[u8]) -> Result<Vec<u8>, Error> {
-        let secret_key_bn = BigNum::from_slice(&secret_key)?;
+        let secret_key_bn = BigNum::from_slice(secret_key)?;
         let point = self.derive_public_key_point(&secret_key_bn)?;
         let bytes = point.to_bytes(
             &self.group,
@@ -230,7 +230,7 @@ impl ECVRF {
     fn generate_nonce(&mut self, secret_key: &BigNum, data: &[u8]) -> Result<BigNum, Error> {
         // Bits to octets from data - bits2octets(h1)
         // We follow the new VRF-draft-05 in which the input is hashed`
-        let data_hash = hash(self.hasher, &data)?;
+        let data_hash = hash(self.hasher, data)?;
 
         let data_trunc = bits2octets(&data_hash, self.qlen, &self.order, &mut self.bn_ctx)?;
         let padded_data_trunc = append_leading_zeros(&data_trunc, self.qlen);
@@ -297,7 +297,7 @@ impl ECVRF {
             &mut self.bn_ctx,
         )?;
         let cipher = [self.cipher_suite.suite_string(), 0x01];
-        let mut v = [&cipher[..], &pk_bytes[..], &alpha[..], &[0x00]].concat();
+        let mut v = [&cipher[..], &pk_bytes[..], alpha, &[0x00]].concat();
         let position = v.len() - 1;
         // `Hash(cipher||PK||data)`
         let mut point = c.find_map(|ctr| {
@@ -311,11 +311,11 @@ impl ECVRF {
         });
 
         if let Some(pt) = point.as_mut() {
-            let mut new_pt = EcPoint::new(&self.group.as_ref())?;
+            let mut new_pt = EcPoint::new(self.group.as_ref())?;
             new_pt.mul(
-                &self.group.as_ref(),
-                &pt,
-                &BigNum::from_slice(&[self.cofactor])?.as_ref(),
+                self.group.as_ref(),
+                pt,
+                BigNum::from_slice(&[self.cofactor])?.as_ref(),
                 &self.bn_ctx,
             )?;
             *pt = new_pt;
@@ -421,11 +421,11 @@ impl ECVRF {
     /// * A vector of octets with the VRF hash output.
     fn gamma_to_hash(&mut self, gamma: &EcPoint) -> Result<Vec<u8>, Error> {
         // Multiply gamma with cofactor
-        let mut gamma_cof = EcPoint::new(&self.group.as_ref())?;
+        let mut gamma_cof = EcPoint::new(self.group.as_ref())?;
         gamma_cof.mul(
-            &self.group.as_ref(),
-            &gamma,
-            &BigNum::from_slice(&[self.cofactor])?.as_ref(),
+            self.group.as_ref(),
+            gamma,
+            BigNum::from_slice(&[self.cofactor])?.as_ref(),
             &self.bn_ctx,
         )?;
 
@@ -460,7 +460,7 @@ impl ECVRF {
     ///
     /// * If successful, a vector of octets with the VRF hash output.
     pub fn proof_to_hash(&mut self, pi: &[u8]) -> Result<Vec<u8>, Error> {
-        let (gamma_point, _, _) = self.decode_proof(&pi)?;
+        let (gamma_point, _, _) = self.decode_proof(pi)?;
 
         self.gamma_to_hash(&gamma_point)
     }
@@ -499,17 +499,17 @@ impl VRF<&[u8], &[u8]> for ECVRF {
         )?;
 
         // Step 4: Gamma = x * H
-        let mut gamma_point = EcPoint::new(&self.group.as_ref())?;
-        gamma_point.mul(&self.group.as_ref(), &h_point, &secret_key, &self.bn_ctx)?;
+        let mut gamma_point = EcPoint::new(self.group.as_ref())?;
+        gamma_point.mul(self.group.as_ref(), &h_point, &secret_key, &self.bn_ctx)?;
 
         // Step 5: nonce
         let k = self.generate_nonce(&secret_key, &h_string)?;
 
         // Step 6: c = hash points(...)
-        let mut u_point = EcPoint::new(&self.group.as_ref())?;
-        let mut v_point = EcPoint::new(&self.group.as_ref())?;
-        u_point.mul_generator(&self.group.as_ref(), &k, &self.bn_ctx)?;
-        v_point.mul(&self.group.as_ref(), &h_point, &k, &self.bn_ctx)?;
+        let mut u_point = EcPoint::new(self.group.as_ref())?;
+        let mut v_point = EcPoint::new(self.group.as_ref())?;
+        u_point.mul_generator(self.group.as_ref(), &k, &self.bn_ctx)?;
+        v_point.mul(self.group.as_ref(), &h_point, &k, &self.bn_ctx)?;
         let c = self.hash_points(&[&h_point, &gamma_point, &u_point, &v_point])?;
 
         // Step 7: s = (k + c*x) mod q
@@ -543,25 +543,25 @@ impl VRF<&[u8], &[u8]> for ECVRF {
     /// * If successful, a vector of octets with the VRF hash output.
     fn verify(&mut self, y: &[u8], pi: &[u8], alpha: &[u8]) -> Result<Vec<u8>, Error> {
         // Step 1: decode proof
-        let (gamma_point, c, s) = self.decode_proof(&pi)?;
+        let (gamma_point, c, s) = self.decode_proof(pi)?;
 
         // Step 2: hash to curve
-        let public_key_point = EcPoint::from_bytes(&self.group, &y, &mut self.bn_ctx)?;
+        let public_key_point = EcPoint::from_bytes(&self.group, y, &mut self.bn_ctx)?;
         let h_point = self.hash_to_try_and_increment(&public_key_point, alpha)?;
 
         // Step 3: U = sB -cY
-        let mut s_b = EcPoint::new(&self.group.as_ref())?;
-        let mut c_y = EcPoint::new(&self.group.as_ref())?;
-        let mut u_point = EcPoint::new(&self.group.as_ref())?;
+        let mut s_b = EcPoint::new(self.group.as_ref())?;
+        let mut c_y = EcPoint::new(self.group.as_ref())?;
+        let mut u_point = EcPoint::new(self.group.as_ref())?;
         s_b.mul_generator(&self.group, &s, &self.bn_ctx)?;
         c_y.mul(&self.group, &public_key_point, &c, &self.bn_ctx)?;
         c_y.invert(&self.group, &self.bn_ctx)?;
         u_point.add(&self.group, &s_b, &c_y, &mut self.bn_ctx)?;
 
         // Step 4: V = sH -cGamma
-        let mut s_h = EcPoint::new(&self.group.as_ref())?;
-        let mut c_gamma = EcPoint::new(&self.group.as_ref())?;
-        let mut v_point = EcPoint::new(&self.group.as_ref())?;
+        let mut s_h = EcPoint::new(self.group.as_ref())?;
+        let mut c_gamma = EcPoint::new(self.group.as_ref())?;
+        let mut v_point = EcPoint::new(self.group.as_ref())?;
         s_h.mul(&self.group, &h_point, &s, &self.bn_ctx)?;
         c_gamma.mul(&self.group, &gamma_point, &c, &self.bn_ctx)?;
         c_gamma.invert(&self.group, &self.bn_ctx)?;
@@ -962,7 +962,7 @@ mod test {
             .unwrap();
 
         let mut expected_c = c_s_hex.clone();
-        expected_c.split_off(16);
+        expected_c.truncate(16);
         assert_eq!(computed_c.to_vec(), expected_c);
     }
 
@@ -981,7 +981,7 @@ mod test {
         let mut gamma_hex = pi_hex.clone();
         let c_s_hex = gamma_hex.split_off(33);
         let mut c_hex = c_s_hex.clone();
-        c_hex.split_off(16);
+        c_hex.truncate(16);
         let expected_gamma = EcPoint::from_bytes(&vrf.group, &gamma_hex, &mut vrf.bn_ctx).unwrap();
         let expected_c = BigNum::from_slice(c_hex.as_slice()).unwrap();
 
