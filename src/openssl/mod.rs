@@ -397,7 +397,9 @@ impl ECVRF {
             self.n / 8
         };
 
-        if pi.len() * 8 < gamma_oct + c_oct * 3 {
+        // Expected size of proof: len(pi) == len(gamma) + len(c) + len(s)
+        // len(s) == 2 * len(c), so len(pi) == len(gamma) + 3 * len(c)
+        if pi.len() != gamma_oct + c_oct * 3 {
             return Err(Error::InvalidPiLength);
         }
         let gamma_point = EcPoint::from_bytes(&self.group, &pi[0..gamma_oct], &mut self.bn_ctx)?;
@@ -1040,5 +1042,20 @@ mod test {
         // The original message was "sample"
         let alpha2 = b"notsample".to_vec();
         assert!(vrf.verify(&y, &pi, &alpha2).is_err());
+    }
+
+    /// Test for malformed proof:
+    /// Verify should fail and the program should not panic.
+    #[test]
+    fn test_verify_secp256k1_sha256_tai_malformed_proof() {
+        let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+        // Public Key (labelled as y)
+        let y = hex::decode("032c8c31fc9f990c6b55e3865a184a4ce50e09481f2eaeb3e60ec1cea13a6ae645")
+            .unwrap();
+        // VRF proof
+        let pi = hex::decode("00000000000000000000000000000000").unwrap();
+
+        let alpha = b"sample".to_vec();
+        assert!(vrf.verify(&y, &pi, &alpha).is_err());
     }
 }
