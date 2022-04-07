@@ -17,9 +17,9 @@ exclude = ["/.travis.yml"]
 travis-ci = { repository = "witnet/vrf-rs", branch = "master" }
 
 [dependencies]
-failure = "0.1.5"
+failure = "0.1.8"
 openssl = "0.10.38"
-hmac-sha256 = "0.1.2"
+hmac-sha256 = "1.1.2"
 
 [dev-dependencies]
 clap = "2.32.0"
