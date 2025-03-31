@@ -29,7 +29,7 @@ use std::{
     os::raw::c_ulong,
 };
 
-use failure::Fail;
+use thiserror::Error;
 use hmac_sha256::HMAC;
 
 use openssl::{
@@ -69,22 +69,22 @@ impl CipherSuite {
 }
 
 /// Different errors that can be raised when proving/verifying VRFs
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum Error {
     /// Error raised from `openssl::error::ErrorStack` with a specific code
-    #[fail(display = "Error with code {}", code)]
+    #[error("Error with code {code:?}")]
     CodedError { code: c_ulong },
     /// The `hash_to_point()` function could not find a valid point
-    #[fail(display = "Hash to point function could not find a valid point")]
+    #[error("Hash to point function could not find a valid point")]
     HashToPointError,
     /// The proof length is invalid
-    #[fail(display = "The proof length is invalid")]
+    #[error("The proof length is invalid")]
     InvalidPiLength,
     /// The proof is invalid
-    #[fail(display = "The proof is invalid")]
+    #[error("The proof is invalid")]
     InvalidProof,
     /// Unknown error
-    #[fail(display = "Unknown error")]
+    #[error("Unknown error")]
     Unknown,
 }
 

@@ -17,15 +17,15 @@ exclude = ["/.travis.yml"]
 travis-ci = { repository = "witnet/vrf-rs", branch = "master" }
 
 [dependencies]
-failure = "0.1.8"
-openssl = "0.10.38"
+thiserror = "2"
+openssl = "0.10"
 hmac-sha256 = "1.1.2"
 
 [dev-dependencies]
 clap = "2.32.0"
-hex = "0.3.2"
-serde = { version = "1.0.90", features = ["derive"] }
-serde_json = "1.0.39"
+hex = "0.4"
+serde = { version = ">=1.0", features = ["derive"] }
+serde_json = { version = ">=1.0" }
 
 [features]
 vendored = ["openssl/vendored"]

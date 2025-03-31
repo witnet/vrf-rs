@@ -1,6 +1,6 @@
 //! Sample module implementing a __dummy__ (to be used as example) Verifiable Random Function (VRF)
 use crate::VRF;
-use failure::Error;
+use crate::openssl::Error as VRFError;
 
 pub struct DummyVRF;
 
@@ -17,7 +17,7 @@ pub type SecretKey<'a> = &'a [u8; SECRET_KEY_SIZE];
 pub type PublicKey<'a> = &'a [u8; PUBLIC_KEY_SIZE];
 
 impl<'a> VRF<PublicKey<'a>, SecretKey<'a>> for DummyVRF {
-    type Error = Error;
+    type Error = VRFError;
 
     // Generate proof from key pair and message
     fn prove(&mut self, _x: SecretKey, _alpha: &[u8]) -> Result<Vec<u8>, Self::Error> {
