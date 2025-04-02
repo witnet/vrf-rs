@@ -1,6 +1,6 @@
 [package]
 name = "vrf"
-version = "0.2.4"
+version = "0.2.5"
 description = "Fast and extensible Verifiable Random Function (VRF) library; currently supporting secp256k1, secp256r1 and sect163k1 curves"
 keywords = ["vrf", "ecvrf", "secp256k1", "p256", "k163"]
 categories = ["algorithms", "cryptography"]
