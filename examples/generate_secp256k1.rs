@@ -19,14 +19,12 @@
 //!  - `message`: message used for VRF
 //!  - `pi`: computed VRF proof
 
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::{fs::File, io::{BufWriter, Write}};
 
 use openssl::bn::BigNum;
 use serde_json::{json, Value};
 
-use vrf::openssl::{CipherSuite, ECVRF};
-use vrf::VRF;
+use vrf::{openssl::{CipherSuite, ECVRF}, VRF};
 
 fn to_hex_string(bytes: Vec<u8>) -> String {
     bytes

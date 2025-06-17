@@ -23,14 +23,13 @@
 //!
 //! * Compute VRF proof
 //! * Verify VRF proof
-use std::fmt;
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{self, Debug, Formatter},
     os::raw::c_ulong,
 };
 
-use thiserror::Error;
 use hmac_sha256::HMAC;
+use thiserror::Error;
 
 use openssl::{
     bn::{BigNum, BigNumContext},
@@ -91,7 +90,7 @@ pub enum Error {
 impl From<ErrorStack> for Error {
     /// Transforms error from `openssl::error::ErrorStack` to `Error::CodedError` or `Error::Unknown`
     fn from(error: ErrorStack) -> Self {
-        match error.errors().get(0).map(openssl::error::Error::code) {
+        match error.errors().first().map(openssl::error::Error::code) {
             Some(code) => Error::CodedError { code },
             _ => Error::Unknown {},
         }
@@ -256,21 +255,21 @@ impl ECVRF {
                 ]
                 .concat()
                 .as_slice(),
-                &k,
+                k,
             );
-            v = HMAC::mac(&v, &k);
+            v = HMAC::mac(v, k);
         }
 
         // Loop until valid `BigNum` extracted from `V` is found
         loop {
-            v = HMAC::mac(&v, &k);
+            v = HMAC::mac(v, k);
             let ret_bn = bits2int(&v, self.qlen)?;
 
             if ret_bn > BigNum::from_u32(0)? && ret_bn < self.order {
                 return Ok(ret_bn);
             }
-            k = HMAC::mac([&v[..], &[0x00]].concat().as_slice(), &k);
-            v = HMAC::mac(&v, &k);
+            k = HMAC::mac([&v[..], &[0x00]].concat().as_slice(), k);
+            v = HMAC::mac(v, k);
         }
     }
 

@@ -1,6 +1,5 @@
 //! Sample module implementing a __dummy__ (to be used as example) Verifiable Random Function (VRF)
-use crate::VRF;
-use crate::openssl::Error as VRFError;
+use crate::{openssl::Error as VRFError, VRF};
 
 pub struct DummyVRF;
 

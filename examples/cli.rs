@@ -7,12 +7,10 @@
 //! 3. (Optional) Convert the VRF proof to a hash (e.g. to be used as pseudo-random value)
 //! 4. Verify a VRF proof by using `verify()` function
 
-use hex;
-use vrf::openssl::{CipherSuite, ECVRF};
-use vrf::VRF;
-
 #[macro_use]
 extern crate clap;
+use hex;
+use vrf::{openssl::{CipherSuite, ECVRF}, VRF};
 
 macro_rules! gen_validator {
     ($name:ident : $type:ty) => {
