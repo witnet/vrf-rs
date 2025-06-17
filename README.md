@@ -32,8 +32,7 @@ Currently the supported cipher suites are:
 Create and verify a VRF proof by using the cipher suite `SECP256K1_SHA256_TAI`:
 
 ```rust
-use vrf::openssl::{CipherSuite, ECVRF};
-use vrf::VRF;
+use {vrf::openssl::{CipherSuite, ECVRF}, VRF};
 
 fn main() {
     // Initialization of VRF context by providing a curve

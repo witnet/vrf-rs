@@ -7,8 +7,10 @@
 //! 3. (Optional) Convert the VRF proof to a hash (e.g. to be used as pseudo-random value)
 //! 4. Verify a VRF proof by using `verify()` function
 
-use vrf::openssl::{CipherSuite, ECVRF};
-use vrf::VRF;
+use vrf::{
+    openssl::{CipherSuite, ECVRF},
+    VRF,
+};
 
 fn main() {
     let mut vrf = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
