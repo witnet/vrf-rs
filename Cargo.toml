@@ -18,7 +18,7 @@ travis-ci = { repository = "witnet/vrf-rs", branch = "master" }
 
 [dependencies]
 thiserror = "2.0.12"
-openssl = "0.10.73"
+openssl = "0.10.79"
 hmac-sha256 = "1.1.12"
 
 [dev-dependencies]
